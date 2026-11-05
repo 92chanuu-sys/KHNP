@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>한수원 발전부 교대근무 & 기상 알람 시스템</title>
+  
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#06080d">
+  <meta name="apple-mobile-web-app-title" content="한수원교대">
+  <!-- PWA Standalone Manifest: 홈화면 추가 시 주소표시줄 완전 제거 및 전체화면 앱 구동 -->
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22%ED%95%9C%EC%88%98%EC%9B%90%20%EB%B0%9C%EC%A0%84%EB%B6%80%20%EA%B5%90%EB%8C%80%EA%B7%BC%EB%AC%B4%22%2C%22short_name%22%3A%22%ED%95%9C%EC%88%98%EC%9B%90%EA%B5%90%EB%8C%80%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%2306080d%22%2C%22theme_color%22%3A%22%2306080d%22%7D">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            oled: '#06080d',
+            surface: '#0f141f',
+            card: '#161c2b',
+            borderline: '#232b3e',
+            shiftDay: '#f59e0b',
+            shiftAfternoon: '#06b6d4',
+            shiftNight: '#a855f7',
+            shiftTraining: '#10b981',
+            shiftOff: '#64748b'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #06080d;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI Roboto", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .badge-glow-day { box-shadow: 0 0 15px rgba(245, 158, 11, 0.35); }
+    .badge-glow-afternoon { box-shadow: 0 0 15px rgba(6, 182, 212, 0.35); }
+    .badge-glow-night { box-shadow: 0 0 15px rgba(168, 85, 247, 0.35); }
+    .badge-glow-training { box-shadow: 0 0 15px rgba(16, 185, 129, 0.35); }
+    
+    /* 16시간 연속 대근(DA, 전일A+당일N) 테두리 그라데이션 */
+    .border-gradient-da {
+      background: linear-gradient(#161c2b, #161c2b) padding-box, linear-gradient(135deg, #f59e0b, #06b6d4) border-box !important;
+      border: 2px solid transparent !important;
+      box-shadow: 0 0 14px rgba(245, 158, 11, 0.35);
+    }
+    .border-gradient-an {
+      background: linear-gradient(#161c2b, #161c2b) padding-box, linear-gradient(135deg, #06b6d4, #a855f7) border-box !important;
+      border: 2px solid transparent !important;
+      box-shadow: 0 0 14px rgba(6, 182, 212, 0.35);
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b0e14; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen pb-16 selection:bg-cyan-500 selection:text-black">
+
+  <!-- 최상단 정돈 헤더 바: 좌측(날짜/조 + 미니멀 근무뱃지), 우측(확대된 카운트다운 + 기상시각 2줄) -->
+  <header class="border-b border-borderline bg-card/95 backdrop-blur-md sticky top-0 z-40 shadow-sm py-2 px-3 sm:px-4">
+    <div class="max-w-5xl mx-auto flex items-center justify-between gap-3">
+      <!-- 좌측: 1열 날짜/조 -> 2열 아담하고 슬림한 근무 뱃지 -->
+      <div class="flex flex-col items-start gap-1 shrink-0">
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs text-slate-300 font-semibold tracking-tight" id="todayDateStr">--</span>
+          <span id="todaySubBadge" class="hidden text-[10px] px-1 py-0.2 rounded font-bold bg-rose-500 text-white whitespace-nowrap">대근</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold border border-cyan-500/40 bg-cyan-950/40 text-cyan-300" id="myTeamBadge">발전 3부</span>
+        </div>
+        <div id="todayShiftBadge" class="text-xs font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 shadow-sm shrink-0">
+          --
+        </div>
+      </div>
+
+      <!-- 우측: 1열 확대된 카운트다운 타이머 -> 2열 돋보이는 기상시각 (시인성 극대화) -->
+      <div class="flex flex-col items-end justify-center shrink-0 text-right">
+        <span class="text-xl sm:text-2xl md:text-3xl font-mono font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-300 tracking-tight leading-none" id="alarmCountdown">
+          --:--:--
+        </span>
+        <span class="text-xs sm:text-sm text-cyan-300 font-semibold truncate leading-tight mt-1" id="countdownTargetShift">다음 기상 시간까지</span>
+      </div>
+
+
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 pt-3 space-y-5">
+
+    <!-- 2. 월간 근무 달력 (공휴일 & 대근 & 휴가 관리) -->
+    <section class="bg-card border border-borderline rounded-2xl p-4 md:p-5 shadow-xl">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5 mb-3">
+        <!-- 월 이동 버튼 및 타이틀 -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="btnPrevMonth" class="p-2 rounded-lg bg-surface hover:bg-slate-800 border border-borderline text-slate-300">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          <h3 class="text-base md:text-lg font-bold text-white min-w-[130px] text-center" id="calendarMonthTitle">--</h3>
+          <button id="btnNextMonth" class="p-2 rounded-lg bg-surface hover:bg-slate-800 border border-borderline text-slate-300">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+          <button id="btnTodayMonth" class="ml-1 px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-medium">오늘</button>
+        </div>
+
+        <!-- 한 줄로 깔끔하게 정리된 근무 범례 (야간 -> 주간 -> 오후 순서) -->
+        <div class="flex items-center gap-2 overflow-x-auto whitespace-nowrap text-[11px] py-1 text-slate-300">
+          <span class="inline-flex items-center gap-1 text-purple-400"><span class="w-2 h-2 rounded-full bg-purple-500"></span>야간(N)</span>
+          <span class="inline-flex items-center gap-1 text-amber-400"><span class="w-2 h-2 rounded-full bg-amber-500"></span>주간(D)</span>
+          <span class="inline-flex items-center gap-1 text-cyan-400"><span class="w-2 h-2 rounded-full bg-cyan-500"></span>오후(A)</span>
+          <span class="inline-flex items-center gap-1 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>교육(T)</span>
+          <span class="inline-flex items-center gap-1 text-teal-400"><span class="w-2 h-2 rounded-full bg-teal-500"></span>휴가(V)</span>
+          <span class="inline-flex items-center gap-1 text-slate-400"><span class="w-2 h-2 rounded-full bg-slate-600"></span>휴무(X)</span>
+          <span class="inline-flex items-center gap-1 text-rose-400 font-bold"><span class="w-2 h-2 rounded-full bg-rose-500"></span>대근</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-7 gap-1 text-center font-semibold text-xs mb-1.5">
+        <div class="py-1 text-rose-400">일</div>
+        <div class="py-1 text-slate-400">월</div>
+        <div class="py-1 text-slate-400">화</div>
+        <div class="py-1 text-slate-400">수</div>
+        <div class="py-1 text-slate-400">목</div>
+        <div class="py-1 text-slate-400">금</div>
+        <div class="py-1 text-sky-400">토</div>
+      </div>
+
+      <div class="overflow-hidden relative rounded-xl w-full select-none h-[386px] sm:h-[446px] pt-1.5 pb-1 px-0.5" id="calendarWrapper">
+        <div id="calendarCarouselTrack" class="flex w-[300%] h-full will-change-transform" style="transform: translate3d(-33.3333%, 0, 0);">
+          <!-- 이전달 패널 -->
+          <div class="w-1/3 shrink-0 px-0.5 h-full">
+            <div class="grid grid-cols-7 gap-1 h-full" id="calPanelPrev"></div>
+          </div>
+          <!-- 현재달 패널 -->
+          <div class="w-1/3 shrink-0 px-0.5 h-full">
+            <div class="grid grid-cols-7 gap-1 h-full" id="calendarGrid"></div>
+          </div>
+          <!-- 다음달 패널 -->
+          <div class="w-1/3 shrink-0 px-0.5 h-full">
+            <div class="grid grid-cols-7 gap-1 h-full" id="calPanelNext"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 오늘 발전팀 근무 현황 (3교대 가동 타임라인 + 6개팀 전체 현황) -->
+    <section class="bg-card border border-borderline rounded-2xl p-4 shadow-xl">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-bold text-white">발전부 근무현황</h3>
+        <span class="hidden" id="matrixTodayDate"></span>
+      </div>
+
+      <!-- 상단: 실시간 3교대 가동 라인 (야간 -> 주간 -> 오후) -->
+      <div class="grid grid-cols-3 gap-2 mb-3" id="activeShiftTimelineGrid"></div>
+
+      <!-- 하단: 6개 발전팀 전체 상세 현황 -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2" id="allTeamsTodayGrid"></div>
+    </section>
+
+    <!-- 4. 기상 알람 시각 사용자 설정 -->
+    <section class="bg-card border border-borderline rounded-2xl p-5 shadow-xl">
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <h3 class="text-sm md:text-base font-bold text-white">근무 형태별 기상 시각 커스텀</h3>
+        <button id="btnResetAlarms" class="text-xs text-slate-400 hover:text-slate-200 underline">기본값 복원</button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="p-3.5 rounded-xl bg-surface border border-amber-500/20 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>주간 (08:00 출근)
+            </span>
+            <span class="text-[10px] text-slate-400">당일 아침</span>
+          </div>
+          <input type="time" id="alarmTimeD" class="bg-slate-900 border border-slate-700 text-white font-mono text-base rounded-lg p-2 text-center w-full focus:outline-none focus:border-amber-500">
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-surface border border-cyan-500/20 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>오후 (16:00 출근)
+            </span>
+            <span class="text-[10px] text-slate-400">당일 낮</span>
+          </div>
+          <input type="time" id="alarmTimeA" class="bg-slate-900 border border-slate-700 text-white font-mono text-base rounded-lg p-2 text-center w-full focus:outline-none focus:border-cyan-500">
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-surface border border-purple-500/20 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span>야간 (00:00 출근)
+            </span>
+            <span class="text-[10px] text-amber-300 font-semibold">전날 밤 기상</span>
+          </div>
+          <input type="time" id="alarmTimeN" class="bg-slate-900 border border-slate-700 text-white font-mono text-base rounded-lg p-2 text-center w-full focus:outline-none focus:border-purple-500">
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-surface border border-emerald-500/20 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>교육 (08:00 출근)
+            </span>
+            <span class="text-[10px] text-slate-400">평일 아침</span>
+          </div>
+          <input type="time" id="alarmTimeT" class="bg-slate-900 border border-slate-700 text-white font-mono text-base rounded-lg p-2 text-center w-full focus:outline-none focus:border-emerald-500">
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 스마트폰 캘린더 연동 알람 추출 (.ics) -->
+    <section class="bg-gradient-to-r from-card via-surface to-card border border-cyan-900/50 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h3 class="text-base md:text-lg font-bold text-white">근무 스케줄 및 기상 알람 내보내기 (.ics)</h3>
+          <p class="text-xs text-slate-300 mt-0.5">삼성 · 애플 · 구글 캘린더 전체 일정 일괄 등록 (RFC 5545 표준)</p>
+          <button id="btnOpenDndGuide2" type="button" class="mt-2 text-[11px] text-amber-300 hover:text-amber-200 underline font-medium flex items-center gap-1">
+            <span>⚙️ 알람 설정법</span>
+          </button>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <select id="exportRangeSelect" class="bg-slate-900 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-cyan-500 font-medium">
+            <option value="30">앞으로 1개월 (30일)</option>
+            <option value="90" selected>앞으로 3개월 (90일)</option>
+            <option value="180">앞으로 6개월 (180일)</option>
+            <option value="365">앞으로 1년 (365일)</option>
+          </select>
+
+          <button id="btnExportIcs" class="py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 transition text-xs md:text-sm font-bold text-white shadow-lg shadow-cyan-950 flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span>스마트폰 캘린더로 내보내기</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. 내 조(Team) 선택 바 -->
+    <section class="bg-card border border-borderline rounded-2xl p-4 shadow-xl">
+      <div class="mb-3">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Team Select</span>
+        <h2 class="text-base font-bold text-white">내 발전부 설정</h2>
+      </div>
+      <div class="grid grid-cols-6 gap-2" id="teamSelectButtons"></div>
+    </section>
+
+    <!-- 날짜 상세 및 대근/휴가 간편 수정 모달 -->
+    <div id="dayDetailModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+      <div class="bg-card border border-borderline rounded-2xl max-w-md w-full p-4 sm:p-5 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+        <button id="btnCloseModal" class="absolute top-3.5 right-3.5 text-slate-400 hover:text-white p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+
+        <div class="text-xs text-slate-400 mb-0.5" id="modalDateStr">--</div>
+        <div class="flex items-center justify-between mb-2.5">
+          <div class="flex items-center gap-2">
+            <h4 class="text-base sm:text-lg font-bold text-white" id="modalShiftTitle">내 근무: 주간</h4>
+            <span id="modalShiftBadge" class="text-xs px-2 py-0.5 rounded font-bold font-mono">D1</span>
+          </div>
+          <!-- 교육/휴무 시 대근 적용중 뱃지 완전 제거 -->
+          <span id="modalOverrideIndicator" class="hidden text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 whitespace-nowrap">
+            대근 적용중
+          </span>
+        </div>
+
+        <div class="space-y-1 bg-surface p-2.5 rounded-xl border border-borderline text-xs mb-2.5">
+          <div class="flex justify-between items-center">
+            <span class="text-slate-400">근무 시간:</span>
+            <span class="font-mono font-semibold text-white" id="modalShiftHours">--:-- ~ --:--</span>
+          </div>
+          <div class="flex justify-between items-start">
+            <span class="text-slate-400">기상 알람:</span>
+            <span class="font-mono font-semibold text-cyan-400 text-right" id="modalAlarmTime">--:--</span>
+          </div>
+        </div>
+
+        <div class="border-t border-borderline pt-2" id="modalShiftSelectGrid">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-slate-300">근무 형태 변경</span>
+            <button id="btnResetDayOverride" class="text-[11px] text-rose-400 hover:text-rose-300 underline font-medium">
+              기본 근무로 복원
+            </button>
+          </div>
+
+          <!-- 단일 근무 및 휴가 선택 -->
+          <div class="grid grid-cols-6 gap-1 mb-1.5" id="modalShiftSelectGridBasic"></div>
+
+          <!-- 연속 대근(16시간) 선택 (DA, NA) -->
+          <div class="grid grid-cols-2 gap-1.5 mb-2" id="modalShiftSelectGridContinuous"></div>
+
+          <!-- 솔루션 A: 바뀐 날짜 하루만 스마트폰 캘린더에 바로 등록 -->
+          <button id="btnExportSingleDay" type="button" class="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 active:scale-95 transition text-xs font-bold text-white shadow-lg shadow-cyan-950 flex items-center justify-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span>이 날짜만 캘린더에 바로 등록</span>
+          </button>
+        </div>
+
+        <!-- 당일 발전팀 근무 현황 (여백 최적화 및 비율 정돈) -->
+        <div class="mt-2.5 pt-2.5 border-t border-borderline">
+          <div class="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1.5">
+            <span>당일 발전부 근무현황</span>
+            <span class="text-[10px] text-amber-300 font-normal">테두리 강조: 16h 연속대근 가능</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5" id="modalAllTeamsGrid"></div>
+        </div>
+
+        <button id="btnModalConfirm" class="mt-2.5 w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-xs font-semibold text-white border border-slate-700">
+          닫기
+        </button>
+      </div>
+    </div>
+
+    <!-- 무음·방해금지 설정 가이드 전용 팝업 모달 -->
+    <div id="dndGuideModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+      <div class="bg-card border border-borderline rounded-2xl max-w-lg w-full p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <button id="btnCloseDndGuide" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+
+        <!-- 모달 헤더: 부제 삭제, 간결한 제목만 유지 -->
+        <div class="flex items-center gap-2.5 mb-4">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center text-lg">
+            🔔
+          </div>
+          <div>
+            <h4 class="text-base font-bold text-white">알람 설정법</h4>
+          </div>
+        </div>
+
+        <div class="space-y-4 text-xs break-keep">
+          <!-- 갤럭시 가이드 -->
+          <div class="p-3.5 rounded-xl bg-surface border border-slate-700/80">
+            <div class="font-bold text-cyan-300 flex items-center gap-1.5 mb-2.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+              갤럭시 (Samsung Galaxy)
+            </div>
+            
+            <div class="space-y-2.5">
+              <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-700/70">
+                <div class="font-bold text-white text-[11px] mb-1.5 flex items-center gap-1">
+                  <span class="text-cyan-400">1.</span> 풀스크린 모닝콜 알람 설정 (캘린더 앱)
+                </div>
+                <div class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                  <div>• <span class="text-slate-400">경로:</span> 캘린더 좌측 메뉴(≡) ➔ 설정(⚙️) ➔ [알림 방식]</div>
+                  <div>• <span class="text-slate-400">선택:</span> <strong class="text-cyan-300">[강하게]</strong> (전체화면 표시 + 긴 알림음 울림)</div>
+                  <div>• <span class="text-slate-400">소리:</span> '긴 알림 소리'에서 큰 알림음 지정</div>
+                </div>
+              </div>
+
+              <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-700/70">
+                <div class="font-bold text-white text-[11px] mb-1.5 flex items-center gap-1">
+                  <span class="text-cyan-400">2.</span> 무음·방해금지 소리 강제 재생 (스마트폰 설정)
+                </div>
+                <div class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                  <div>• <span class="text-slate-400">경로:</span> [설정] ➔ [애플리케이션] ➔ [캘린더] ➔ [알림]</div>
+                  <div>• <span class="text-slate-400">항목:</span> [알림 카테고리] ➔ [일정 알림] 터치</div>
+                  <div>• <span class="text-slate-400">설정:</span> <strong class="text-amber-300">[방해 금지 적용 예외]</strong>를 [켬]으로 활성화</div>
+                  <div>• <span class="text-slate-400">유형:</span> [알림 유형] ➔ [소리와 진동 허용] 설정</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 아이폰 가이드 -->
+          <div class="p-3.5 rounded-xl bg-surface border border-slate-700/80">
+            <div class="font-bold text-purple-300 flex items-center gap-1.5 mb-2.5">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+              아이폰 (Apple iPhone)
+            </div>
+            
+            <div class="space-y-2.5">
+              <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-700/70">
+                <div class="font-bold text-white text-[11px] mb-1.5 flex items-center gap-1">
+                  <span class="text-purple-400">1.</span> 수면/방해금지 캘린더 소리 허용
+                </div>
+                <div class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                  <div>• <span class="text-slate-400">경로:</span> [설정] ➔ [집중 모드] ➔ [수면/방해금지]</div>
+                  <div>• <span class="text-slate-400">설정:</span> [앱 알림 허용]에 '캘린더' 추가</div>
+                </div>
+              </div>
+
+              <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-700/70">
+                <div class="font-bold text-white text-[11px] mb-1.5 flex items-center gap-1">
+                  <span class="text-purple-400">2.</span> 긴급 알림 설정
+                </div>
+                <div class="text-[11px] text-slate-300 space-y-1 leading-relaxed">
+                  <div>• <span class="text-slate-400">경로:</span> [설정] ➔ [캘린더] ➔ [알림]</div>
+                  <div>• <span class="text-slate-400">설정:</span> <strong class="text-purple-300">[긴급한 알림]</strong> 켜기</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button id="btnConfirmDndGuide" class="mt-4 w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-slate-700 active:scale-95 transition">
+          확인
+        </button>
+      </div>
+    </div>
+
+    <!-- 토스트 알림창 -->
+    <div id="toastMessage" class="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl bg-slate-900 border border-cyan-500/50 text-cyan-300 text-xs font-medium shadow-2xl transition-all duration-300 opacity-0 pointer-events-none z-50 flex items-center gap-2">
+      <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      <span id="toastText">설정이 저장되었습니다.</span>
+    </div>
+
+  </main>
+
+  <script>
+    /* ==========================================================================
+       안전한 저장소 래퍼 (content:// 로컬 파일 환경 보안 에러 방지)
+       ========================================================================== */
+    const memoryStorage = {};
+    const safeStorage = {
+      getItem: function(key) {
+        try {
+          return window.localStorage ? window.localStorage.getItem(key) : (memoryStorage[key] || null);
+        } catch (e) {
+          return memoryStorage[key] || null;
+        }
+      },
+      setItem: function(key, value) {
+        try {
+          if (window.localStorage) {
+            window.localStorage.setItem(key, value);
+          }
+        } catch (e) {
+          // 로컬 파일 차단 시 메모리 유지
+        }
+        memoryStorage[key] = String(value);
+      }
+    };
+
+    /* ==========================================================================
+       대한민국 법정 공휴일 & 대체공휴일 & 근로자의 날 데이터베이스
+       ========================================================================== */
+    const HOLIDAYS = {
+      // 2025년
+      '2025-01-01': '신정',
+      '2025-01-28': '설날 연휴',
+      '2025-01-29': '설날',
+      '2025-01-30': '설날 연휴',
+      '2025-03-01': '삼일절',
+      '2025-03-03': '대체공휴일',
+      '2025-05-01': '근로자의 날',
+      '2025-05-05': '어린이날',
+      '2025-05-06': '대체공휴일',
+      '2025-06-06': '현충일',
+      '2025-08-15': '광복절',
+      '2025-10-03': '개천절',
+      '2025-10-05': '추석 연휴',
+      '2025-10-06': '추석',
+      '2025-10-07': '추석 연휴',
+      '2025-10-08': '대체공휴일',
+      '2025-10-09': '한글날',
+      '2025-12-25': '성탄절',
+
+      // 2026년
+      '2026-01-01': '신정',
+      '2026-02-16': '설날 연휴',
+      '2026-02-17': '설날',
+      '2026-02-18': '설날 연휴',
+      '2026-03-01': '삼일절',
+      '2026-03-02': '대체공휴일',
+      '2026-05-01': '근로자의 날',
+      '2026-05-05': '어린이날',
+      '2026-05-24': '부처님오신날',
+      '2026-05-25': '대체공휴일',
+      '2026-06-06': '현충일',
+      '2026-08-15': '광복절',
+      '2026-08-17': '대체공휴일',
+      '2026-09-24': '추석 연휴',
+      '2026-09-25': '추석',
+      '2026-09-26': '추석 연휴',
+      '2026-10-03': '개천절',
+      '2026-10-05': '대체공휴일',
+      '2026-10-09': '한글날',
+      '2026-12-25': '성탄절',
+
+      // 2027년
+      '2027-01-01': '신정',
+      '2027-02-06': '설날 연휴',
+      '2027-02-07': '설날',
+      '2027-02-08': '설날 연휴',
+      '2027-02-09': '대체공휴일',
+      '2027-03-01': '삼일절',
+      '2027-05-01': '근로자의 날',
+      '2027-05-05': '어린이날',
+      '2027-05-13': '부처님오신날',
+      '2027-06-06': '현충일',
+      '2027-08-15': '광복절',
+      '2027-08-16': '대체공휴일',
+      '2027-09-14': '추석 연휴',
+      '2027-09-15': '추석',
+      '2027-09-16': '추석 연휴',
+      '2027-10-03': '개천절',
+      '2027-10-04': '대체공휴일',
+      '2027-10-09': '한글날',
+      '2027-10-11': '대체공휴일',
+      '2027-12-25': '성탄절',
+      '2027-12-27': '대체공휴일'
+    };
+
+    const SOLAR_FIXED_HOLIDAYS = {
+      '01-01': '신정',
+      '03-01': '삼일절',
+      '05-01': '근로자의 날',
+      '05-05': '어린이날',
+      '06-06': '현충일',
+      '08-15': '광복절',
+      '10-03': '개천절',
+      '10-09': '한글날',
+      '12-25': '성탄절'
+    };
+
+    function getHolidayName(date) {
+      const ymd = getYmdKey(date);
+      if (HOLIDAYS[ymd]) return HOLIDAYS[ymd];
+      const mmdd = ymd.slice(5);
+      return SOLAR_FIXED_HOLIDAYS[mmdd] || null;
+    }
+
+    /* ==========================================================================
+       한수원 발전팀 5조 3교대 + 1조 교육 (총 6개 조) 엔진
+       ========================================================================== */
+    const SHIFT_15 = [
+      'D', 'D', 'D',
+      'X', 'X',
+      'A', 'A', 'A',
+      'X',
+      'N', 'N', 'N',
+      'X', 'X', 'X'
+    ];
+
+    const SHIFT_15_LABELS = [
+      'D1', 'D2', 'D3',
+      'D OFF1', 'D OFF2',
+      'A1', 'A2', 'A3',
+      'A OFF1',
+      'N1', 'N2', 'N3',
+      'N OFF1', 'N OFF2', 'N OFF3'
+    ];
+
+    const MASTER_CYCLE_DAYS = 126;
+    const SHIFT_PERIOD_DAYS = 105;
+
+    const SHIFT_CONFIG = {
+      'D': {
+        code: 'D', name: '주간', hours: '08:00 ~ 16:00',
+        startHour: 8, startMin: 0, endHour: 16, endMin: 0,
+        badgeBg: 'bg-amber-500 text-black', cardBorder: 'border-amber-500/40', cardBg: 'bg-amber-500/10',
+        textColor: 'text-amber-400', glowClass: 'badge-glow-day'
+      },
+      'A': {
+        code: 'A', name: '오후', hours: '16:00 ~ 24:00',
+        startHour: 16, startMin: 0, endHour: 24, endMin: 0,
+        badgeBg: 'bg-cyan-500 text-black', cardBorder: 'border-cyan-500/40', cardBg: 'bg-cyan-500/10',
+        textColor: 'text-cyan-400', glowClass: 'badge-glow-afternoon'
+      },
+      'N': {
+        code: 'N', name: '야간', hours: '00:00 ~ 08:00',
+        startHour: 0, startMin: 0, endHour: 8, endMin: 0,
+        badgeBg: 'bg-purple-500 text-white', cardBorder: 'border-purple-500/40', cardBg: 'bg-purple-500/10',
+        textColor: 'text-purple-400', glowClass: 'badge-glow-night'
+      },
+      'S': {
+        code: 'S', name: 'S근무', hours: '08:00 ~ 17:00 (일근)',
+        startHour: 8, startMin: 0, endHour: 17, endMin: 0,
+        badgeBg: 'bg-blue-600 text-white', cardBorder: 'border-blue-500/40', cardBg: 'bg-blue-500/10',
+        textColor: 'text-blue-400', glowClass: 'badge-glow-day'
+      },
+      'T': {
+        code: 'T', name: '교육', hours: '08:00 ~ 17:00',
+        startHour: 8, startMin: 0, endHour: 17, endMin: 0,
+        badgeBg: 'bg-emerald-500 text-black', cardBorder: 'border-emerald-500/40', cardBg: 'bg-emerald-500/10',
+        textColor: 'text-emerald-400', glowClass: 'badge-glow-training'
+      },
+      'X': {
+        code: 'X', name: '휴무', hours: '휴무 (OFF)',
+        startHour: null, startMin: null, endHour: null, endMin: null,
+        badgeBg: 'bg-slate-700 text-slate-300', cardBorder: 'border-slate-800', cardBg: 'bg-slate-800/20',
+        textColor: 'text-slate-400', glowClass: ''
+      },
+      'V': {
+        code: 'V', name: '휴가', hours: '연차/휴가 (OFF)',
+        startHour: null, startMin: null, endHour: null, endMin: null,
+        badgeBg: 'bg-teal-500 text-black', cardBorder: 'border-teal-500/40', cardBg: 'bg-teal-500/10',
+        textColor: 'text-teal-400', glowClass: ''
+      },
+      'DA': {
+        code: 'DA', name: '주간+오후', hours: '08:00 ~ 24:00 (16h)',
+        startHour: 8, startMin: 0, endHour: 24, endMin: 0,
+        badgeBg: 'bg-gradient-to-r from-amber-500 to-cyan-500 text-black font-extrabold',
+        cardBorder: 'border-amber-400/50', cardBg: 'bg-gradient-to-r from-amber-500/15 to-cyan-500/15',
+        textColor: 'text-amber-300', glowClass: 'badge-glow-day'
+      },
+      'NA': {
+        code: 'NA', name: '야간+오후', hours: '00~08 & 16~24 (16h)',
+        startHour: 0, startMin: 0, endHour: 24, endMin: 0,
+        badgeBg: 'bg-gradient-to-r from-purple-600 to-cyan-500 text-white font-extrabold',
+        cardBorder: 'border-purple-400/50', cardBg: 'bg-gradient-to-r from-purple-500/15 to-cyan-500/15',
+        textColor: 'text-purple-300', glowClass: 'badge-glow-night'
+      }
+    };
+
+    const TEAM_OFFSETS = { 1: 42, 2: 21, 3: 0, 4: 105, 5: 84, 6: 63 };
+
+    const STORAGE_KEY_TEAM = 'khnp_my_team';
+    const STORAGE_KEY_ALARMS = 'khnp_alarm_times';
+    const STORAGE_KEY_OVERRIDES = 'khnp_shift_overrides';
+
+    const DEFAULT_ALARMS = {
+      'D': '06:15',
+      'A': '13:45',
+      'N': '22:00',
+      'T': '06:30',
+      'S': '06:30'
+    };
+
+    let currentTeam = 3;
+    let alarmTimes = { ...DEFAULT_ALARMS };
+    let shiftOverrides = {};
+    let viewYear = new Date().getFullYear();
+    let viewMonth = new Date().getMonth();
+    let selectedModalDate = null;
+    let isCalendarSwiped = false;
+
+    function getYmdKey(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function getDaysDiff(targetDate) {
+      const anchorUtc = Date.UTC(2026, 9, 11); // 2026-10-11
+      const targetUtc = Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+      return Math.floor((targetUtc - anchorUtc) / 86400000);
+    }
+
+    function getBaseShiftForDate(date, team) {
+      const diff = getDaysDiff(date);
+      const offset = TEAM_OFFSETS[team] || 0;
+      let cycleDay = (diff + offset) % MASTER_CYCLE_DAYS;
+      if (cycleDay < 0) cycleDay += MASTER_CYCLE_DAYS;
+
+      if (cycleDay < SHIFT_PERIOD_DAYS) {
+        // 교육 이후 3번째(29), 5번째(59), 7번째(89) 주간 근무 하루 전날(N OFF3) S근무 적용
+        if (cycleDay === 29 || cycleDay === 59 || cycleDay === 89) {
+          return SHIFT_CONFIG['S'];
+        }
+        const code = SHIFT_15[cycleDay % 15];
+        return SHIFT_CONFIG[code];
+      } else {
+        const dayOfWeek = date.getDay();
+        const isHoliday = !!getHolidayName(date);
+        // 주말(토/일) 또는 법정 공휴일에는 교육 대신 휴무(X) 처리
+        return (dayOfWeek === 0 || dayOfWeek === 6 || isHoliday) ? SHIFT_CONFIG['X'] : SHIFT_CONFIG['T'];
+      }
+    }
+
+    function getCycleStepInfo(date, team) {
+      const diff = getDaysDiff(date);
+      const offset = TEAM_OFFSETS[team] || 0;
+      let cycleDay = (diff + offset) % MASTER_CYCLE_DAYS;
+      if (cycleDay < 0) cycleDay += MASTER_CYCLE_DAYS;
+
+      if (cycleDay < SHIFT_PERIOD_DAYS) {
+        if (cycleDay === 29 || cycleDay === 59 || cycleDay === 89) {
+          return {
+            code: 'S',
+            label: 'S'
+          };
+        }
+        const idx = cycleDay % 15;
+        return {
+          code: SHIFT_15[idx],
+          label: SHIFT_15_LABELS[idx]
+        };
+      } else {
+        const dayOfWeek = date.getDay();
+        const holidayName = getHolidayName(date);
+        if (holidayName) return { code: 'X', label: 'T 휴무' };
+        if (dayOfWeek === 0) return { code: 'X', label: 'T OFF2' };
+        if (dayOfWeek === 6) return { code: 'X', label: 'T OFF1' };
+        return { code: 'T', label: 'T' };
+      }
+    }
+
+    function getShiftForDate(date, team) {
+      const baseShift = getBaseShiftForDate(date, team);
+      if (team === currentTeam) {
+        const ymd = getYmdKey(date);
+        if (shiftOverrides[ymd]) {
+          // 기본 근무와 동일한 코드로 저장되어 있다면 오버라이드 자동 해제
+          if (shiftOverrides[ymd] === baseShift.code) {
+            delete shiftOverrides[ymd];
+            safeStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(shiftOverrides));
+            return { ...baseShift, isOverride: false, baseShift: baseShift };
+          }
+          if (SHIFT_CONFIG[shiftOverrides[ymd]]) {
+            return { ...SHIFT_CONFIG[shiftOverrides[ymd]], isOverride: true, baseShift: baseShift };
+          }
+        }
+      }
+      return { ...baseShift, isOverride: false, baseShift: baseShift };
+    }
+
+    function loadSettings() {
+      const savedTeam = safeStorage.getItem(STORAGE_KEY_TEAM);
+      if (savedTeam && TEAM_OFFSETS[savedTeam]) {
+        currentTeam = parseInt(savedTeam, 10);
+      }
+
+      const savedAlarms = safeStorage.getItem(STORAGE_KEY_ALARMS);
+      if (savedAlarms) {
+        try {
+          alarmTimes = { ...DEFAULT_ALARMS, ...JSON.parse(savedAlarms) };
+        } catch (e) {
+          alarmTimes = { ...DEFAULT_ALARMS };
+        }
+      }
+
+      const savedOverrides = safeStorage.getItem(STORAGE_KEY_OVERRIDES);
+      if (savedOverrides) {
+        try {
+          shiftOverrides = JSON.parse(savedOverrides);
+        } catch (e) {
+          shiftOverrides = {};
+        }
+      }
+
+      document.getElementById('alarmTimeD').value = alarmTimes['D'];
+      document.getElementById('alarmTimeA').value = alarmTimes['A'];
+      document.getElementById('alarmTimeN').value = alarmTimes['N'];
+      document.getElementById('alarmTimeT').value = alarmTimes['T'];
+    }
+
+    function saveAlarmTimes() {
+      alarmTimes['D'] = document.getElementById('alarmTimeD').value || DEFAULT_ALARMS['D'];
+      alarmTimes['A'] = document.getElementById('alarmTimeA').value || DEFAULT_ALARMS['A'];
+      alarmTimes['N'] = document.getElementById('alarmTimeN').value || DEFAULT_ALARMS['N'];
+      alarmTimes['T'] = document.getElementById('alarmTimeT').value || DEFAULT_ALARMS['T'];
+      safeStorage.setItem(STORAGE_KEY_ALARMS, JSON.stringify(alarmTimes));
+      showToast('기상 알람 시간이 저장되었습니다.');
+      updateDashboard();
+      renderCalendar();
+    }
+
+    function setMyTeam(teamNum) {
+      currentTeam = teamNum;
+      safeStorage.setItem(STORAGE_KEY_TEAM, teamNum);
+      renderTeamButtons();
+      updateDashboard();
+      renderCalendar();
+      showToast(`발전 ${teamNum}부로 설정되었습니다.`);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toastMessage');
+      const text = document.getElementById('toastText');
+      text.innerText = msg;
+      toast.classList.remove('opacity-0', 'pointer-events-none');
+      toast.classList.add('opacity-100');
+      setTimeout(() => {
+        toast.classList.remove('opacity-100');
+        toast.classList.add('opacity-0', 'pointer-events-none');
+      }, 2400);
+    }
+
+
+
+    /* ==========================================================================
+       근무 변경 로직: 원래 근무와 동일한 코드 클릭 시 대근을 없애고 기본 근무로 복원
+       ========================================================================== */
+    function setDayOverride(date, shiftCode) {
+      const ymd = getYmdKey(date);
+      const baseShift = getBaseShiftForDate(date, currentTeam);
+
+      // 동일한 기본 근무를 클릭한 경우: 대근/오버라이드를 해제하고 기본 근무로 자동 복원
+      if (shiftCode === baseShift.code) {
+        if (shiftOverrides[ymd]) {
+          delete shiftOverrides[ymd];
+          safeStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(shiftOverrides));
+        }
+        showToast(`${ymd} 일정이 기본 순환(${baseShift.name})으로 복원되었습니다.`);
+        updateDashboard();
+        renderCalendar();
+        openDayDetail(date, getShiftForDate(date, currentTeam));
+        return;
+      }
+
+      shiftOverrides[ymd] = shiftCode;
+      safeStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(shiftOverrides));
+      
+      const shiftName = SHIFT_CONFIG[shiftCode].name;
+      let typeLabel = '대근';
+      if (shiftCode === 'V') typeLabel = '휴가';
+      if (shiftCode === 'T') typeLabel = '교육';
+      if (shiftCode === 'X') typeLabel = '휴무';
+
+      showToast(`${ymd} 일정이 [${shiftName}] ${typeLabel}(으)로 변경되었습니다.`);
+      
+      updateDashboard();
+      renderCalendar();
+      openDayDetail(date, getShiftForDate(date, currentTeam));
+    }
+
+    function resetDayOverride(date) {
+      const ymd = getYmdKey(date);
+      if (shiftOverrides[ymd]) {
+        delete shiftOverrides[ymd];
+        safeStorage.setItem(STORAGE_KEY_OVERRIDES, JSON.stringify(shiftOverrides));
+        showToast(`${ymd} 일정이 기본 순환 근무로 복원되었습니다.`);
+        
+        updateDashboard();
+        renderCalendar();
+        openDayDetail(date, getShiftForDate(date, currentTeam));
+      }
+    }
+
+    function renderTeamButtons() {
+      const container = document.getElementById('teamSelectButtons');
+      container.innerHTML = '';
+      for (let i = 1; i <= 6; i++) {
+        const isSelected = i === currentTeam;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-2.5 px-2 rounded-xl text-xs md:text-sm font-bold transition flex flex-col items-center justify-center border ${
+          isSelected
+            ? 'bg-gradient-to-b from-cyan-500/20 to-indigo-500/20 border-cyan-400 text-white shadow-lg shadow-cyan-950/60 ring-1 ring-cyan-400'
+            : 'bg-surface hover:bg-slate-800 border-borderline text-slate-400'
+        }`;
+        btn.innerHTML = `
+          <span>${i}부</span>
+          <span class="text-[10px] font-normal ${isSelected ? 'text-cyan-300' : 'text-slate-500'}">${isSelected ? '내 부' : '선택'}</span>
+        `;
+        btn.addEventListener('click', () => setMyTeam(i));
+        container.appendChild(btn);
+      }
+      document.getElementById('myTeamBadge').innerText = `발전 ${currentTeam}부`;
+    }
+
+    function updateDashboard() {
+      const now = new Date();
+      const todayShift = getShiftForDate(now, currentTeam);
+      const todayStepInfo = getCycleStepInfo(now, currentTeam);
+
+
+
+      const daysKr = ['일', '월', '화', '수', '목', '금', '토'];
+      const holidayToday = getHolidayName(now);
+      const holidayTodayText = holidayToday ? ` · <span class="text-rose-400 font-bold">${holidayToday}</span>` : '';
+      document.getElementById('todayDateStr').innerHTML = 
+        `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${daysKr[now.getDay()]})${holidayTodayText}`;
+
+      // 교육/휴무 변경 시 '대근' 뱃지 제거, 대근은 '대', 휴가는 '휴'로 1글자 표기
+      const subBadge = document.getElementById('todaySubBadge');
+      if (todayShift.isOverride) {
+        if (todayShift.code === 'V') {
+          subBadge.innerText = '휴';
+          subBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-teal-600 text-white whitespace-nowrap';
+          subBadge.classList.remove('hidden');
+        } else if (todayShift.code === 'T' || todayShift.code === 'X') {
+          subBadge.classList.add('hidden');
+        } else {
+          subBadge.innerText = '대';
+          subBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-rose-500 text-white whitespace-nowrap';
+          subBadge.classList.remove('hidden');
+        }
+      } else {
+        subBadge.classList.add('hidden');
+      }
+
+      // 뱃지 통폐합: 근무명과 일차를 하나로 결합 (예: 주간 (D1))
+      const badge = document.getElementById('todayShiftBadge');
+      badge.className = `text-xs font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${todayShift.badgeBg} ${todayShift.cardBorder} ${todayShift.glowClass}`;
+      const shiftTag = todayShift.isOverride ? todayShift.code : todayStepInfo.label;
+      badge.innerHTML = `<span>${todayShift.name}</span><span class="text-[11px] font-mono opacity-90">(${shiftTag})</span>`;
+
+
+
+      // 다음 알람 정보 조회 (필요 시)
+      const next = getNextAlarmDate(now, currentTeam);
+
+      renderAllTeamsToday(now);
+    }
+
+    /* ==========================================================================
+       오늘 6개 발전팀 순환 현황판 (내 조 테두리 통일 & 폰트 대폭 확대)
+       ========================================================================== */
+    function renderAllTeamsToday(date) {
+      const container = document.getElementById('allTeamsTodayGrid');
+      container.innerHTML = '';
+
+      const matrixDateEl = document.getElementById('matrixTodayDate');
+      if (matrixDateEl) {
+        matrixDateEl.innerText = `${date.getMonth() + 1}.${date.getDate()} 기준`;
+      }
+
+      // 1. 당일 야간(N), 주간(D), 오후(A) 근무 발전팀 찾기
+      let nightTeam = null, dayTeam = null, eveningTeam = null;
+
+      for (let t = 1; t <= 6; t++) {
+        const shift = getBaseShiftForDate(date, t);
+        const stepInfo = getCycleStepInfo(date, t);
+        const isMyTeam = t === currentTeam;
+
+        if (shift.code === 'N') nightTeam = { team: t, shift, stepInfo, isMyTeam };
+        if (shift.code === 'D') dayTeam = { team: t, shift, stepInfo, isMyTeam };
+        if (shift.code === 'A') eveningTeam = { team: t, shift, stepInfo, isMyTeam };
+
+        // 6개 발전팀 카드 렌더링
+        const card = document.createElement('div');
+        card.className = `p-2 sm:p-2.5 rounded-xl border transition flex flex-col justify-between ${shift.cardBg} ${shift.cardBorder}`;
+        card.innerHTML = `
+          <div class="flex items-center justify-between text-xs mb-1">
+            <span class="font-bold ${isMyTeam ? 'text-cyan-300' : 'text-slate-300'}">${t}부</span>
+            ${isMyTeam ? '<span class="text-[9px] bg-slate-800 text-cyan-300 px-1.5 py-0.2 rounded font-semibold border border-cyan-800/60">내 부</span>' : ''}
+          </div>
+          <div class="flex items-baseline justify-between gap-1">
+            <span class="text-sm font-extrabold ${shift.textColor}">${shift.name}</span>
+            <span class="text-xs font-mono font-bold text-slate-200 bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700/60">${stepInfo.label}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+
+      // 2. 상단 3교대 가동 라인 (야간 -> 주간 -> 오후) 렌더링
+      const timelineContainer = document.getElementById('activeShiftTimelineGrid');
+      if (timelineContainer) {
+        timelineContainer.innerHTML = '';
+        const shifts3 = [
+          { label: '야간 (00~08)', item: nightTeam, border: 'border-purple-500/50', bg: 'bg-purple-950/25', titleColor: 'text-purple-400', badgeColor: 'text-purple-300' },
+          { label: '주간 (08~16)', item: dayTeam, border: 'border-amber-500/50', bg: 'bg-amber-950/25', titleColor: 'text-amber-400', badgeColor: 'text-amber-300' },
+          { label: '오후 (16~24)', item: eveningTeam, border: 'border-cyan-500/50', bg: 'bg-cyan-950/25', titleColor: 'text-cyan-400', badgeColor: 'text-cyan-300' }
+        ];
+
+        shifts3.forEach(s => {
+          const tData = s.item;
+          const box = document.createElement('div');
+          const isMine = tData && tData.isMyTeam;
+          box.className = `p-2.5 rounded-xl border ${s.border} ${s.bg} flex flex-col justify-between transition relative overflow-hidden shadow-sm`;
+          
+          if (tData) {
+            box.innerHTML = `
+              <div class="flex items-center justify-between text-[11px] mb-1">
+                <span class="font-bold ${s.titleColor} flex items-center gap-1">${s.label}</span>
+                ${isMine ? '<span class="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/50 px-1 rounded font-bold">내 부</span>' : ''}
+              </div>
+              <div class="flex items-baseline justify-between mt-0.5">
+                <span class="text-sm sm:text-base font-extrabold text-white">${tData.team}부</span>
+                <span class="text-xs font-mono font-bold ${s.badgeColor}">(${tData.stepInfo.label})</span>
+              </div>
+            `;
+          } else {
+            box.innerHTML = `<div class="text-xs text-slate-500">${s.label} 없음</div>`;
+          }
+          timelineContainer.appendChild(box);
+        });
+      }
+    }
+
+    function parseTime(timeStr) {
+      if (!timeStr || typeof timeStr !== 'string') return { hour: 6, minute: 15 };
+      const parts = timeStr.split(':').map(Number);
+      return { hour: isNaN(parts[0]) ? 6 : parts[0], minute: isNaN(parts[1]) ? 15 : parts[1] };
+    }
+
+    function getNextAlarmDate(now, team) {
+      for (let i = 0; i <= 10; i++) {
+        const checkDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+        const shift = getShiftForDate(checkDate, team);
+
+        if (shift.code === 'X' || shift.code === 'V') continue;
+
+        const subText = (shift.isOverride && shift.code !== 'T') ? '[대근] ' : '';
+
+        // NA: 1차(야간) 및 2차(오후) 2단계 알람 지원
+        if (shift.code === 'NA') {
+          const tObjN = parseTime(alarmTimes['N']);
+          let alarmDate1 = new Date(checkDate);
+          alarmDate1.setDate(alarmDate1.getDate() - 1);
+          alarmDate1.setHours(tObjN.hour, tObjN.minute, 0, 0);
+
+          if (alarmDate1.getTime() > now.getTime()) {
+            return {
+              date: alarmDate1,
+              shift: shift,
+              label: `${subText}NA 1차 야간 기상`,
+              timeStr: `${String(alarmDate1.getHours()).padStart(2, '0')}:${String(alarmDate1.getMinutes()).padStart(2, '0')}`
+            };
+          }
+
+          const tObjA = parseTime(alarmTimes['A']);
+          let alarmDate2 = new Date(checkDate);
+          alarmDate2.setHours(tObjA.hour, tObjA.minute, 0, 0);
+
+          if (alarmDate2.getTime() > now.getTime()) {
+            return {
+              date: alarmDate2,
+              shift: shift,
+              label: `${subText}NA 2차 오후 기상`,
+              timeStr: `${String(alarmDate2.getHours()).padStart(2, '0')}:${String(alarmDate2.getMinutes()).padStart(2, '0')}`
+            };
+          }
+          continue;
+        }
+
+        let alarmCode = shift.code;
+        if (shift.code === 'DA') alarmCode = 'D';
+        if (shift.code === 'S') alarmCode = alarmTimes['S'] ? 'S' : 'D';
+
+        let alarmDate = new Date(checkDate);
+        const tObj = parseTime(alarmTimes[alarmCode]);
+
+        if (alarmCode === 'N') {
+          alarmDate.setDate(alarmDate.getDate() - 1);
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        } else {
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        }
+
+        if (alarmDate.getTime() > now.getTime()) {
+          return {
+            date: alarmDate,
+            shift: shift,
+            label: `${subText}${shift.name} 기상`,
+            timeStr: `${String(alarmDate.getHours()).padStart(2, '0')}:${String(alarmDate.getMinutes()).padStart(2, '0')}`
+          };
+        }
+      }
+      return null;
+    }
+
+    function updateLiveCountdown() {
+      const now = new Date();
+
+      const next = getNextAlarmDate(now, currentTeam);
+      if (!next) {
+        document.getElementById('alarmCountdown').innerText = "--:--:--";
+        document.getElementById('countdownTargetShift').innerText = "예정된 기상 알람 없음";
+        return;
+      }
+
+      const diffMs = next.date - now;
+      if (diffMs <= 0) {
+        updateDashboard();
+        return;
+      }
+
+      const totalSec = Math.floor(diffMs / 1000);
+      const hours = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+
+      const hh = String(hours).padStart(2, '0');
+      const mm = String(mins).padStart(2, '0');
+      const ss = String(secs).padStart(2, '0');
+
+      document.getElementById('alarmCountdown').innerText = `${hh}:${mm}:${ss}`;
+      document.getElementById('countdownTargetShift').innerText = `⏰ ${next.label} (${next.timeStr})까지`;
+    }
+
+    function formatIcsDateTime(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const h = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      const s = String(date.getSeconds()).padStart(2, '0');
+      return `${y}${m}${d}T${h}${min}${s}`;
+    }
+
+
+
+    /* ==========================================================================
+       스마트 덮어쓰기 지원 .ics 내보내기 엔진 (90일 일괄 내보내기)
+       ========================================================================== */
+    function exportToIcs() {
+      const rangeDays = parseInt(document.getElementById('exportRangeSelect').value, 10) || 90;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const dtStampUtc = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+      let icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//KHNP Shift Alarm System//KO',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        `X-WR-CALNAME:한수원 발전 ${currentTeam}부 근무일정`,
+        'X-WR-TIMEZONE:Asia/Seoul',
+        'BEGIN:VTIMEZONE',
+        'TZID:Asia/Seoul',
+        'BEGIN:STANDARD',
+        'DTSTART:19700101T000000',
+        'TZOFFSETFROM:+0900',
+        'TZOFFSETTO:+0900',
+        'TZNAME:KST',
+        'END:STANDARD',
+        'END:VTIMEZONE'
+      ];
+
+      for (let i = 0; i < rangeDays; i++) {
+        const curDate = new Date(today);
+        curDate.setDate(curDate.getDate() + i);
+        const shift = getShiftForDate(curDate, currentTeam);
+        const ymd = `${curDate.getFullYear()}${String(curDate.getMonth() + 1).padStart(2, '0')}${String(curDate.getDate()).padStart(2, '0')}`;
+        const primaryUid = `khnp-shift-${currentTeam}-${ymd}-main@khnp.co.kr`;
+
+        if (shift.code === 'X' || shift.code === 'V') {
+          const nextDay = new Date(curDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const nextYmd = `${nextDay.getFullYear()}${String(nextDay.getMonth() + 1).padStart(2, '0')}${String(nextDay.getDate()).padStart(2, '0')}`;
+
+          let summary = `[휴무] 발전 ${currentTeam}부 비번`;
+          let desc = `한국수력원자력 발전 ${currentTeam}부 비번/휴무일`;
+          if (shift.code === 'V') {
+            summary = `[휴가] 발전 ${currentTeam}부 연차/휴가`;
+            desc = `한국수력원자력 발전 ${currentTeam}부 연차 및 휴가일`;
+          }
+
+          icsContent.push(
+            'BEGIN:VEVENT',
+            `UID:${primaryUid}`,
+            `SEQUENCE:2`,
+            `LAST-MODIFIED:${dtStampUtc}`,
+            `DTSTAMP:${dtStampUtc}`,
+            `DTSTART;VALUE=DATE:${ymd}`,
+            `DTEND;VALUE=DATE:${nextYmd}`,
+            `SUMMARY:${summary}`,
+            `DESCRIPTION:${desc}`,
+            'END:VEVENT'
+          );
+          continue;
+        }
+
+        // NA (야간 + 오후)
+        if (shift.code === 'NA') {
+          let dtStart1 = new Date(curDate);
+          dtStart1.setHours(0, 0, 0, 0);
+          let dtEnd1 = new Date(curDate);
+          dtEnd1.setHours(8, 0, 0, 0);
+
+          const tObjN = parseTime(alarmTimes['N']);
+          let alarmDate1 = new Date(curDate);
+          alarmDate1.setDate(alarmDate1.getDate() - 1);
+          alarmDate1.setHours(tObjN.hour, tObjN.minute, 0, 0);
+
+          const diffMin1 = Math.round((dtStart1.getTime() - alarmDate1.getTime()) / 60000);
+          const trig1 = diffMin1 >= 0 ? `-PT${diffMin1}M` : `PT${Math.abs(diffMin1)}M`;
+          const wake1 = `${String(alarmDate1.getHours()).padStart(2, '0')}:${String(alarmDate1.getMinutes()).padStart(2, '0')}`;
+
+          icsContent.push(
+            'BEGIN:VEVENT',
+            `UID:${primaryUid}`,
+            `SEQUENCE:2`,
+            `LAST-MODIFIED:${dtStampUtc}`,
+            `DTSTAMP:${dtStampUtc}`,
+            `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart1)}`,
+            `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd1)}`,
+            `SUMMARY:[대근·NA 1차] 발전 ${currentTeam}부 야간 (00:00 ~ 08:00)`,
+            `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 1차 야간 근무\\n⏰ 기상 알람: ${wake1}\\n근무시간: 00:00 ~ 08:00`,
+            'BEGIN:VALARM',
+            'ACTION:DISPLAY',
+            `DESCRIPTION:⏰ [대근] NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
+            `TRIGGER:${trig1}`,
+            'END:VALARM',
+            'END:VEVENT'
+          );
+
+          let dtStart2 = new Date(curDate);
+          dtStart2.setHours(16, 0, 0, 0);
+          let dtEnd2 = new Date(curDate);
+          dtEnd2.setDate(dtEnd2.getDate() + 1);
+          dtEnd2.setHours(0, 0, 0, 0);
+
+          const tObjA = parseTime(alarmTimes['A']);
+          let alarmDate2 = new Date(curDate);
+          alarmDate2.setHours(tObjA.hour, tObjA.minute, 0, 0);
+
+          const diffMin2 = Math.round((dtStart2.getTime() - alarmDate2.getTime()) / 60000);
+          const trig2 = diffMin2 >= 0 ? `-PT${diffMin2}M` : `PT${Math.abs(diffMin2)}M`;
+          const wake2 = `${String(alarmDate2.getHours()).padStart(2, '0')}:${String(alarmDate2.getMinutes()).padStart(2, '0')}`;
+
+          icsContent.push(
+            'BEGIN:VEVENT',
+            `UID:khnp-shift-${currentTeam}-${ymd}-slot2@khnp.co.kr`,
+            `SEQUENCE:2`,
+            `LAST-MODIFIED:${dtStampUtc}`,
+            `DTSTAMP:${dtStampUtc}`,
+            `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart2)}`,
+            `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd2)}`,
+            `SUMMARY:[대근·NA 2차] 발전 ${currentTeam}부 오후 (16:00 ~ 24:00)`,
+            `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 2차 오후 근무\\n⏰ 기상 알람: ${wake2}\\n근무시간: 16:00 ~ 24:00`,
+            'BEGIN:VALARM',
+            'ACTION:DISPLAY',
+            `DESCRIPTION:⏰ [대근] NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
+            `TRIGGER:${trig2}`,
+            'END:VALARM',
+            'END:VEVENT'
+          );
+          continue;
+        }
+
+        // D, A, N, T, DA
+        let dtStart = new Date(curDate);
+        dtStart.setHours(shift.startHour, shift.startMin, 0, 0);
+
+        let dtEnd = new Date(curDate);
+        if (shift.endHour === 24) {
+          dtEnd.setDate(dtEnd.getDate() + 1);
+          dtEnd.setHours(0, 0, 0, 0);
+        } else {
+          dtEnd.setHours(shift.endHour, shift.endMin, 0, 0);
+        }
+
+        let alarmCode = shift.code;
+        if (shift.code === 'DA') alarmCode = 'D';
+        if (shift.code === 'S') alarmCode = alarmTimes['S'] ? 'S' : 'D';
+
+        const tObj = parseTime(alarmTimes[alarmCode]);
+        let alarmDate = new Date(curDate);
+        if (alarmCode === 'N') {
+          alarmDate.setDate(alarmDate.getDate() - 1);
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        } else {
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        }
+
+        const diffMinutes = Math.round((dtStart.getTime() - alarmDate.getTime()) / 60000);
+        const triggerStr = diffMinutes >= 0 ? `-PT${diffMinutes}M` : `PT${Math.abs(diffMinutes)}M`;
+        const wakeStr = `${String(alarmDate.getHours()).padStart(2, '0')}:${String(alarmDate.getMinutes()).padStart(2, '0')}`;
+
+        const isActualSub = shift.isOverride && shift.code !== 'T';
+        const summaryPrefix = isActualSub ? `[대근·${shift.name}]` : `[${shift.name}]`;
+        const descPrefix = isActualSub ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
+
+        icsContent.push(
+          'BEGIN:VEVENT',
+          `UID:${primaryUid}`,
+          `SEQUENCE:2`,
+          `LAST-MODIFIED:${dtStampUtc}`,
+          `DTSTAMP:${dtStampUtc}`,
+          `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart)}`,
+          `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd)}`,
+          `SUMMARY:${summaryPrefix} 발전 ${currentTeam}부 (${shift.hours})`,
+          `DESCRIPTION:${descPrefix}\\n⏰ 기상 알람: ${wakeStr}\\n근무시간: ${shift.hours}`,
+          'BEGIN:VALARM',
+          'ACTION:DISPLAY',
+          `DESCRIPTION:⏰ ${summaryPrefix} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
+          `TRIGGER:${triggerStr}`,
+          'END:VALARM',
+          'END:VEVENT'
+        );
+      }
+
+      icsContent.push('END:VCALENDAR');
+
+      const blob = new Blob([icsContent.join('\r\n')], { type: 'text/calendar;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `한수원_발전${currentTeam}부_근무알람_${rangeDays}일.ics`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+      showToast(`발전 ${currentTeam}부 ${rangeDays}일치 캘린더 파일(.ics)이 생성되었습니다.`);
+    }
+
+    /* ==========================================================================
+       [솔루션 A] 바뀐 날짜 하루만 스마트폰 캘린더에 바로 등록/덮어쓰기
+       ========================================================================== */
+    function exportSingleDayIcs(targetDate) {
+      if (!targetDate) return;
+      const shift = getShiftForDate(targetDate, currentTeam);
+      const ymd = `${targetDate.getFullYear()}${String(targetDate.getMonth() + 1).padStart(2, '0')}${String(targetDate.getDate()).padStart(2, '0')}`;
+      const dtStampUtc = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      const primaryUid = `khnp-shift-${currentTeam}-${ymd}-main@khnp.co.kr`;
+
+      let icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//KHNP Shift Alarm System//KO',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        `X-WR-CALNAME:한수원 발전 ${currentTeam}부 근무일정`,
+        'X-WR-TIMEZONE:Asia/Seoul',
+        'BEGIN:VTIMEZONE',
+        'TZID:Asia/Seoul',
+        'BEGIN:STANDARD',
+        'DTSTART:19700101T000000',
+        'TZOFFSETFROM:+0900',
+        'TZOFFSETTO:+0900',
+        'TZNAME:KST',
+        'END:STANDARD',
+        'END:VTIMEZONE'
+      ];
+
+      if (shift.code === 'X' || shift.code === 'V') {
+        const nextDay = new Date(targetDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const nextYmd = `${nextDay.getFullYear()}${String(nextDay.getMonth() + 1).padStart(2, '0')}${String(nextDay.getDate()).padStart(2, '0')}`;
+
+        let summary = `[휴무] 발전 ${currentTeam}부 비번`;
+        let desc = `한국수력원자력 발전 ${currentTeam}부 비번/휴무일`;
+        if (shift.code === 'V') {
+          summary = `[휴가] 발전 ${currentTeam}부 연차/휴가`;
+          desc = `한국수력원자력 발전 ${currentTeam}부 연차 및 휴가일`;
+        }
+
+        icsContent.push(
+          'BEGIN:VEVENT',
+          `UID:${primaryUid}`,
+          `SEQUENCE:3`,
+          `LAST-MODIFIED:${dtStampUtc}`,
+          `DTSTAMP:${dtStampUtc}`,
+          `DTSTART;VALUE=DATE:${ymd}`,
+          `DTEND;VALUE=DATE:${nextYmd}`,
+          `SUMMARY:${summary}`,
+          `DESCRIPTION:${desc}`,
+          'END:VEVENT'
+        );
+      } else if (shift.code === 'NA') {
+        let dtStart1 = new Date(targetDate);
+        dtStart1.setHours(0, 0, 0, 0);
+        let dtEnd1 = new Date(targetDate);
+        dtEnd1.setHours(8, 0, 0, 0);
+
+        const tObjN = parseTime(alarmTimes['N']);
+        let alarmDate1 = new Date(targetDate);
+        alarmDate1.setDate(alarmDate1.getDate() - 1);
+        alarmDate1.setHours(tObjN.hour, tObjN.minute, 0, 0);
+
+        const diffMin1 = Math.round((dtStart1.getTime() - alarmDate1.getTime()) / 60000);
+        const trig1 = diffMin1 >= 0 ? `-PT${diffMin1}M` : `PT${Math.abs(diffMin1)}M`;
+        const wake1 = `${String(alarmDate1.getHours()).padStart(2, '0')}:${String(alarmDate1.getMinutes()).padStart(2, '0')}`;
+
+        icsContent.push(
+          'BEGIN:VEVENT',
+          `UID:${primaryUid}`,
+          `SEQUENCE:3`,
+          `LAST-MODIFIED:${dtStampUtc}`,
+          `DTSTAMP:${dtStampUtc}`,
+          `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart1)}`,
+          `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd1)}`,
+          `SUMMARY:[대근·NA 1차] 발전 ${currentTeam}부 야간 (00:00 ~ 08:00)`,
+          `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 1차 야간 근무\\n⏰ 기상 알람: ${wake1}\\n근무시간: 00:00 ~ 08:00`,
+          'BEGIN:VALARM',
+          'ACTION:DISPLAY',
+          `DESCRIPTION:⏰ [대근] NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
+          `TRIGGER:${trig1}`,
+          'END:VALARM',
+          'END:VEVENT'
+        );
+
+        let dtStart2 = new Date(targetDate);
+        dtStart2.setHours(16, 0, 0, 0);
+        let dtEnd2 = new Date(targetDate);
+        dtEnd2.setDate(dtEnd2.getDate() + 1);
+        dtEnd2.setHours(0, 0, 0, 0);
+
+        const tObjA = parseTime(alarmTimes['A']);
+        let alarmDate2 = new Date(targetDate);
+        alarmDate2.setHours(tObjA.hour, tObjA.minute, 0, 0);
+
+        const diffMin2 = Math.round((dtStart2.getTime() - alarmDate2.getTime()) / 60000);
+        const trig2 = diffMin2 >= 0 ? `-PT${diffMin2}M` : `PT${Math.abs(diffMin2)}M`;
+        const wake2 = `${String(alarmDate2.getHours()).padStart(2, '0')}:${String(alarmDate2.getMinutes()).padStart(2, '0')}`;
+
+        icsContent.push(
+          'BEGIN:VEVENT',
+          `UID:khnp-shift-${currentTeam}-${ymd}-slot2@khnp.co.kr`,
+          `SEQUENCE:3`,
+          `LAST-MODIFIED:${dtStampUtc}`,
+          `DTSTAMP:${dtStampUtc}`,
+          `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart2)}`,
+          `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd2)}`,
+          `SUMMARY:[대근·NA 2차] 발전 ${currentTeam}부 오후 (16:00 ~ 24:00)`,
+          `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 2차 오후 근무\\n⏰ 기상 알람: ${wake2}\\n근무시간: 16:00 ~ 24:00`,
+          'BEGIN:VALARM',
+          'ACTION:DISPLAY',
+          `DESCRIPTION:⏰ [대근] NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
+          `TRIGGER:${trig2}`,
+          'END:VALARM',
+          'END:VEVENT'
+        );
+      } else {
+        let dtStart = new Date(targetDate);
+        dtStart.setHours(shift.startHour, shift.startMin, 0, 0);
+
+        let dtEnd = new Date(targetDate);
+        if (shift.endHour === 24) {
+          dtEnd.setDate(dtEnd.getDate() + 1);
+          dtEnd.setHours(0, 0, 0, 0);
+        } else {
+          dtEnd.setHours(shift.endHour, shift.endMin, 0, 0);
+        }
+
+        let alarmCode = shift.code;
+        if (shift.code === 'DA') alarmCode = 'D';
+        if (shift.code === 'S') alarmCode = alarmTimes['S'] ? 'S' : 'D';
+
+        const tObj = parseTime(alarmTimes[alarmCode]);
+        let alarmDate = new Date(targetDate);
+        if (alarmCode === 'N') {
+          alarmDate.setDate(alarmDate.getDate() - 1);
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        } else {
+          alarmDate.setHours(tObj.hour, tObj.minute, 0, 0);
+        }
+
+        const diffMinutes = Math.round((dtStart.getTime() - alarmDate.getTime()) / 60000);
+        const triggerStr = diffMinutes >= 0 ? `-PT${diffMinutes}M` : `PT${Math.abs(diffMinutes)}M`;
+        const wakeStr = `${String(alarmDate.getHours()).padStart(2, '0')}:${String(alarmDate.getMinutes()).padStart(2, '0')}`;
+
+        const isActualSub = shift.isOverride && shift.code !== 'T';
+        const summaryPrefix = isActualSub ? `[대근·${shift.name}]` : `[${shift.name}]`;
+        const descPrefix = isActualSub ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
+
+        icsContent.push(
+          'BEGIN:VEVENT',
+          `UID:${primaryUid}`,
+          `SEQUENCE:3`,
+          `LAST-MODIFIED:${dtStampUtc}`,
+          `DTSTAMP:${dtStampUtc}`,
+          `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart)}`,
+          `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd)}`,
+          `SUMMARY:${summaryPrefix} 발전 ${currentTeam}부 (${shift.hours})`,
+          `DESCRIPTION:${descPrefix}\\n⏰ 기상 알람: ${wakeStr}\\n근무시간: ${shift.hours}`,
+          'BEGIN:VALARM',
+          'ACTION:DISPLAY',
+          `DESCRIPTION:⏰ ${summaryPrefix} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
+          `TRIGGER:${triggerStr}`,
+          'END:VALARM',
+          'END:VEVENT'
+        );
+      }
+
+      icsContent.push('END:VCALENDAR');
+
+      const blob = new Blob([icsContent.join('\r\n')], { type: 'text/calendar;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `한수원_발전${currentTeam}부_${ymd}_${shift.name}.ics`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+      showToast(`${targetDate.getMonth() + 1}월 ${targetDate.getDate()}일 [${shift.name}] 캘린더 일정이 생성되었습니다.`);
+    }
+
+    /* ==========================================================================
+       월간 근무 달력 렌더링 & 5행/6행 동적 비율 조정 캐러셀 엔진
+       ========================================================================== */
+    // 특정 연/월의 달력 그리드 생성 (5행 달은 세로 비율을 늘려 6행 달과 전체 높이 100% 일치)
+    function populateMonthGrid(gridElement, year, month) {
+      gridElement.innerHTML = '';
+
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+
+      const startDayOfWeek = firstDay.getDay();
+      const totalDays = lastDay.getDate();
+
+      // 6행 필요 여부 판정 (42칸 기준 6행을 못 채우는 달은 5행으로 잡고 세로 비율 확대)
+      const rawRows = Math.ceil((startDayOfWeek + totalDays) / 7);
+      const numRows = Math.max(5, rawRows); // 5행 또는 6행
+
+      // 그리드 세로 분할 설정 (5행이면 1/5씩, 6행이면 1/6씩 균등 분할하여 전체 높이 불변)
+      gridElement.style.gridTemplateRows = `repeat(${numRows}, minmax(0, 1fr))`;
+
+      const targetSlots = numRows * 7; // 35칸(5행) 또는 42칸(6행)
+
+      const today = new Date();
+      const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+      const frag = document.createDocumentFragment();
+
+      // 1. 전달 빈칸
+      const prevMonthLastDay = new Date(year, month, 0).getDate();
+      for (let i = startDayOfWeek - 1; i >= 0; i--) {
+        const emptyCell = document.createElement('div');
+        emptyCell.className = 'h-full p-1 rounded-xl bg-surface/20 border border-borderline/20 flex flex-col justify-between opacity-25 select-none pointer-events-none';
+        emptyCell.innerHTML = `<span class="text-xs text-slate-600">${prevMonthLastDay - i}</span>`;
+        frag.appendChild(emptyCell);
+      }
+
+      // 2. 당월 날짜 채우기 (h-full로 각 행의 비율에 맞춰 시원하게 확대)
+      for (let day = 1; day <= totalDays; day++) {
+        const dateObj = new Date(year, month, day);
+        const dayOfWeek = dateObj.getDay();
+        const shift = getShiftForDate(dateObj, currentTeam);
+
+        const isToday = isCurrentMonth && day === today.getDate();
+        const holidayName = getHolidayName(dateObj);
+
+        let dateColor = 'text-slate-200';
+        if (holidayName || dayOfWeek === 0) dateColor = 'text-rose-400 font-bold';
+        else if (dayOfWeek === 6) dateColor = 'text-sky-400 font-semibold';
+
+        const cell = document.createElement('div');
+        let borderClass = 'border-borderline/80';
+        let bgClass = 'bg-surface/50';
+
+        if (isToday) {
+          borderClass = 'border-2 border-cyan-400 ring-1 ring-cyan-300/60 shadow-lg shadow-cyan-950/80';
+          bgClass = 'bg-slate-900/90';
+        }
+
+        cell.className = `h-full p-1 sm:p-1.5 rounded-xl border ${borderClass} ${bgClass} hover:border-slate-500 active:scale-95 transition-all cursor-pointer flex flex-col justify-between select-none relative group`;
+
+        let subDot = '';
+        if (shift.isOverride) {
+          if (shift.code === 'V') {
+            subDot = '<span class="text-[9px] w-4 h-4 rounded flex items-center justify-center bg-teal-600 text-white font-black leading-none whitespace-nowrap shrink-0">휴</span>';
+          } else if (shift.code === 'T' || shift.code === 'X') {
+            subDot = '';
+          } else {
+            subDot = '<span class="text-[9px] w-4 h-4 rounded flex items-center justify-center bg-rose-500 text-white font-black leading-none whitespace-nowrap shrink-0">대</span>';
+          }
+        } else if (isToday) {
+          subDot = '<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>';
+        }
+
+        const holidayRow = holidayName 
+          ? `<div class="text-[9px] text-rose-400 font-medium truncate leading-tight my-auto tracking-tighter">${holidayName}</div>` 
+          : '<div class="h-2"></div>';
+
+        cell.innerHTML = `
+          <div class="flex items-center justify-between w-full">
+            <span class="text-xs ${dateColor}">${day}</span>
+            ${subDot}
+          </div>
+          ${holidayRow}
+          <div class="w-full">
+            <div class="px-1 py-0.5 rounded text-[10px] md:text-xs font-extrabold flex items-center justify-between truncate ${shift.badgeBg}">
+              <span class="truncate">${shift.code}</span>
+              <span class="hidden sm:inline font-medium text-[9px] opacity-90 truncate ml-1">${shift.name}</span>
+            </div>
+          </div>
+        `;
+
+        cell.addEventListener('click', () => {
+          if (isCalendarSwiped) return;
+          openDayDetail(dateObj, shift);
+        });
+        frag.appendChild(cell);
+      }
+
+      // 3. 익월 빈칸 채우기 (5행 달은 35칸까지만 채워 6행 더미행을 없애고 세로 비율 확대)
+      const filledSlots = startDayOfWeek + totalDays;
+      const remainingSlots = targetSlots - filledSlots;
+      for (let i = 1; i <= remainingSlots; i++) {
+        const emptyCell = document.createElement('div');
+        emptyCell.className = 'h-full p-1 rounded-xl bg-surface/20 border border-borderline/20 flex flex-col justify-between opacity-25 select-none pointer-events-none';
+        emptyCell.innerHTML = `<span class="text-xs text-slate-600">${i}</span>`;
+        frag.appendChild(emptyCell);
+      }
+
+      gridElement.appendChild(frag);
+    }
+
+    // 3패널 [이전달 - 현재달 - 다음달] 연속 렌더링 함수
+    function renderCalendar() {
+      const monthTitle = document.getElementById('calendarMonthTitle');
+      monthTitle.innerText = `${viewYear}년 ${viewMonth + 1}월`;
+
+      let prevM = viewMonth - 1, prevY = viewYear;
+      if (prevM < 0) { prevM = 11; prevY--; }
+
+      let nextM = viewMonth + 1, nextY = viewYear;
+      if (nextM > 11) { nextM = 0; nextY++; }
+
+      const currentGrid = document.getElementById('calendarGrid');
+      if (currentGrid) populateMonthGrid(currentGrid, viewYear, viewMonth);
+
+      const prevGrid = document.getElementById('calPanelPrev');
+      if (prevGrid) populateMonthGrid(prevGrid, prevY, prevM);
+
+      const nextGrid = document.getElementById('calPanelNext');
+      if (nextGrid) populateMonthGrid(nextGrid, nextY, nextM);
+
+      const track = document.getElementById('calendarCarouselTrack');
+      if (track) {
+        track.style.transition = 'none';
+        track.style.transform = 'translate3d(-33.3333%, 0, 0)';
+      }
+    }
+
+    function openDayDetail(date, myShift) {
+      selectedModalDate = new Date(date);
+      const stepInfo = getCycleStepInfo(date, currentTeam);
+
+      const daysKr = ['일', '월', '화', '수', '목', '금', '토'];
+      const holidaySel = getHolidayName(date);
+      const holidaySelText = holidaySel ? ` · <span class="text-rose-400 font-bold">${holidaySel}</span>` : '';
+      document.getElementById('modalDateStr').innerHTML = 
+        `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${daysKr[date.getDay()]})${holidaySelText}`;
+
+      document.getElementById('modalShiftTitle').innerText = `내 근무: ${myShift.name}`;
+      
+      const badge = document.getElementById('modalShiftBadge');
+      const stepLabel = myShift.isOverride ? myShift.code : stepInfo.label;
+      badge.className = `text-xs px-2 py-0.5 rounded font-bold font-mono ${myShift.badgeBg}`;
+      badge.innerText = stepLabel;
+
+      const overrideIndicator = document.getElementById('modalOverrideIndicator');
+      const btnResetDayOverrideEl = document.getElementById('btnResetDayOverride');
+
+      // 교육(T) 및 휴무(X) 변경 시 [대근 적용중] 표시 제거
+      if (myShift.isOverride) {
+        if (myShift.code === 'V') {
+          overrideIndicator.innerText = '휴가 적용중';
+          overrideIndicator.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 whitespace-nowrap';
+          overrideIndicator.classList.remove('hidden');
+        } else if (myShift.code === 'T' || myShift.code === 'X') {
+          overrideIndicator.classList.add('hidden');
+        } else {
+          overrideIndicator.innerText = '대근 적용중';
+          overrideIndicator.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 whitespace-nowrap';
+          overrideIndicator.classList.remove('hidden');
+        }
+        btnResetDayOverrideEl.classList.remove('hidden');
+      } else {
+        overrideIndicator.classList.add('hidden');
+        btnResetDayOverrideEl.classList.add('hidden');
+      }
+
+      document.getElementById('modalShiftHours').innerText = myShift.hours;
+
+      const modalAlarmTimeEl = document.getElementById('modalAlarmTime');
+      if (myShift.code === 'X') {
+        modalAlarmTimeEl.innerText = '알람 없음 (휴무)';
+      } else if (myShift.code === 'V') {
+        modalAlarmTimeEl.innerText = '알람 없음 (휴가)';
+      } else if (myShift.code === 'NA') {
+        modalAlarmTimeEl.innerHTML = `1차: ${alarmTimes['N']} (전날 밤) <br> 2차: ${alarmTimes['A']} (당일 낮)`;
+      } else if (myShift.code === 'DA') {
+        modalAlarmTimeEl.innerText = `${alarmTimes['D']} (주간 출근 전)`;
+      } else if (myShift.code === 'S') {
+        const tStr = alarmTimes['S'] || alarmTimes['D'] || '06:30';
+        modalAlarmTimeEl.innerText = `${tStr} (S근무 일근 기상)`;
+      } else {
+        const tStr = alarmTimes[myShift.code] || '--:--';
+        const note = myShift.code === 'N' ? ' (전날 밤 기상)' : '';
+        modalAlarmTimeEl.innerText = `${tStr}${note}`;
+      }
+
+      // 1. 단일 근무 형태 & 휴가 그리드 렌더링
+      const basicGrid = document.getElementById('modalShiftSelectGridBasic');
+      basicGrid.innerHTML = '';
+      const basicKeys = ['D', 'A', 'N', 'T', 'X', 'V'];
+
+      basicKeys.forEach(code => {
+        const cfg = SHIFT_CONFIG[code];
+        const isCurrent = myShift.code === code;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-2 px-1 rounded-lg border text-center transition flex flex-col items-center justify-center ${
+          isCurrent 
+            ? `${cfg.badgeBg} border-white ring-1 ring-white shadow font-extrabold`
+            : 'bg-surface hover:bg-slate-800 border-borderline text-slate-300'
+        }`;
+        btn.innerHTML = `
+          <span class="text-xs font-bold leading-none">${cfg.name}</span>
+          <span class="text-[9px] font-mono mt-0.5 opacity-80">${code}</span>
+        `;
+        btn.addEventListener('click', () => {
+          setDayOverride(selectedModalDate, code);
+        });
+        basicGrid.appendChild(btn);
+      });
+
+      // 2. 연속 대근(16시간) 그리드 렌더링 (DA, NA)
+      const continuousGrid = document.getElementById('modalShiftSelectGridContinuous');
+      continuousGrid.innerHTML = '';
+      const continuousKeys = ['DA', 'NA'];
+
+      continuousKeys.forEach(code => {
+        const cfg = SHIFT_CONFIG[code];
+        const isCurrent = myShift.code === code;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `py-2 px-2 rounded-lg border text-center transition flex flex-col items-center justify-center ${
+          isCurrent 
+            ? `${cfg.badgeBg} border-white ring-1 ring-white shadow font-black`
+            : 'bg-surface hover:bg-slate-800 border-borderline text-slate-300'
+        }`;
+        btn.innerHTML = `
+          <span class="text-xs font-extrabold leading-none">${cfg.name}</span>
+          <span class="text-[10px] font-mono font-bold mt-0.5 opacity-90">${code}</span>
+        `;
+        btn.addEventListener('click', () => {
+          setDayOverride(selectedModalDate, code);
+        });
+        continuousGrid.appendChild(btn);
+      });
+
+      // 3. 당일 6개 팀 순환 현황 (DA·AN 그라데이션 테두리 강조, 내 조 테두리 강조 없음)
+      const allGrid = document.getElementById('modalAllTeamsGrid');
+      allGrid.innerHTML = '';
+      allGrid.classList.remove('hidden');
+
+      const myBase = getBaseShiftForDate(date, currentTeam);
+
+      for (let t = 1; t <= 6; t++) {
+        const s = getBaseShiftForDate(date, t);
+        const st = getCycleStepInfo(date, t);
+        const isMine = t === currentTeam;
+
+        // 16시간 연속 대근 형태 판별:
+        // 1) 내가 주간(D)이면 -> 당일 오후(A)조가 DA 연속 가능
+        // 2) 내가 오후(A)이면 -> 당일 주간(D)조가 DA 연속 가능
+        // 3) 내가 야간(N)이면 -> 당일 순환표상 A2, A3, A OFF1 (어제 저녁 A근무자)가 16시간 연속 철야 대근 가능!
+        let candidateType = null;
+        if (!isMine) {
+          if (myBase.code === 'D') {
+            if (s.code === 'A') candidateType = 'DA';
+          } else if (myBase.code === 'A') {
+            if (s.code === 'D') candidateType = 'DA';
+          } else if (myBase.code === 'N') {
+            if (st.label === 'A2' || st.label === 'A3' || st.label === 'A OFF1') {
+              candidateType = 'AN_CHAIN';
+            }
+          }
+        }
+
+        const box = document.createElement('div');
+        let cardStyleClass = `p-2 rounded-lg border transition ${s.cardBg} ${s.cardBorder}`;
+        let teamNameClass = isMine ? 'text-cyan-300 font-bold' : 'text-slate-400';
+        let stepLabelClass = 'text-slate-300';
+
+        if (candidateType === 'DA') {
+          // DA (주간 앰버 -> 오후 시안) 그라데이션 테두리
+          cardStyleClass = 'p-2 rounded-lg transition border-gradient-da';
+          teamNameClass = 'text-amber-300 font-extrabold';
+          stepLabelClass = 'text-cyan-300 font-bold';
+        } else if (candidateType === 'AN_CHAIN') {
+          // 전일 A + 당일 N 철야연속 (오후 시안 -> 야간 퍼플) 그라데이션 테두리
+          cardStyleClass = 'p-2 rounded-lg transition border-gradient-an';
+          teamNameClass = 'text-cyan-300 font-extrabold';
+          stepLabelClass = 'text-purple-300 font-bold';
+        }
+
+        box.className = cardStyleClass;
+        box.innerHTML = `
+          <div class="flex items-center justify-between text-[11px] mb-1">
+            <span class="${teamNameClass}">${t}부${isMine ? '(나)' : ''}</span>
+            <span class="font-mono text-xs font-bold ${stepLabelClass}">${st.label}</span>
+          </div>
+          <div class="text-xs sm:text-sm font-extrabold ${s.textColor}">${s.name} (${s.code})</div>
+        `;
+        allGrid.appendChild(box);
+      }
+
+      document.getElementById('dayDetailModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('dayDetailModal').classList.add('hidden');
+      selectedModalDate = null;
+    }
+
+    /* ==========================================================================
+       무음·방해금지 설정 가이드 모달 제어
+       ========================================================================== */
+    function openDndGuideModal() {
+      document.getElementById('dndGuideModal').classList.remove('hidden');
+    }
+
+    function closeDndGuideModal() {
+      document.getElementById('dndGuideModal').classList.add('hidden');
+    }
+
+
+
+    function setupEventListeners() {
+      ['D', 'A', 'N', 'T'].forEach(code => {
+        const input = document.getElementById(`alarmTime${code}`);
+        input.addEventListener('change', saveAlarmTimes);
+      });
+
+      document.getElementById('btnResetAlarms').addEventListener('click', () => {
+        alarmTimes = { ...DEFAULT_ALARMS };
+        document.getElementById('alarmTimeD').value = alarmTimes['D'];
+        document.getElementById('alarmTimeA').value = alarmTimes['A'];
+        document.getElementById('alarmTimeN').value = alarmTimes['N'];
+        document.getElementById('alarmTimeT').value = alarmTimes['T'];
+        saveAlarmTimes();
+      });
+
+      // 무음·방해금지 가이드 버튼들
+      document.getElementById('btnOpenDndGuide2').addEventListener('click', openDndGuideModal);
+      document.getElementById('btnCloseDndGuide').addEventListener('click', closeDndGuideModal);
+      document.getElementById('btnConfirmDndGuide').addEventListener('click', closeDndGuideModal);
+
+      document.getElementById('btnExportIcs').addEventListener('click', exportToIcs);
+
+      // 솔루션 A: 단일 날짜 즉시 캘린더 등록 이벤트
+      document.getElementById('btnExportSingleDay').addEventListener('click', () => {
+        if (selectedModalDate) {
+          exportSingleDayIcs(selectedModalDate);
+        }
+      });
+
+            // 상단 버튼: 애니메이션 연동 없이 즉시 전환
+      document.getElementById('btnPrevMonth').addEventListener('click', () => {
+        viewMonth--;
+        if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+        renderCalendar();
+      });
+
+      document.getElementById('btnNextMonth').addEventListener('click', () => {
+        viewMonth++;
+        if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+        renderCalendar();
+      });
+
+      document.getElementById('btnTodayMonth').addEventListener('click', () => {
+        const today = new Date();
+        viewYear = today.getFullYear();
+        viewMonth = today.getMonth();
+        renderCalendar();
+      });
+
+      // ==============================================================
+      // [1월 - 2월 - 3월] 실시간 손가락 1:1 추종 및 탄성 스냅 캐러셀 엔진
+      // ==============================================================
+      const calWrapper = document.getElementById('calendarWrapper');
+      const track = document.getElementById('calendarCarouselTrack');
+
+      let dragStartX = 0;
+      let dragStartY = 0;
+      let dragStartTime = 0;
+      let isDragging = false;
+      let isHorizontalSwipe = false;
+
+      function onDragStart(clientX, clientY) {
+        dragStartX = clientX;
+        dragStartY = clientY;
+        dragStartTime = Date.now();
+        isDragging = true;
+        isHorizontalSwipe = false;
+        isCalendarSwiped = false;
+        if (track) track.style.transition = 'none';
+      }
+
+      function onDragMove(clientX, clientY) {
+        if (!isDragging) return;
+        const diffX = clientX - dragStartX;
+        const diffY = clientY - dragStartY;
+
+        // 수평 드래그 판정
+        if (!isHorizontalSwipe) {
+          if (Math.abs(diffX) > 8 && Math.abs(diffX) > Math.abs(diffY)) {
+            isHorizontalSwipe = true;
+            isCalendarSwiped = true;
+          } else if (Math.abs(diffY) > 8) {
+            // 수직 스크롤 우세 시 수평 드래그 취소
+            isDragging = false;
+            return;
+          }
+        }
+
+        if (isHorizontalSwipe && track) {
+          // 실시간으로 손가락을 1:1로 따라 움직임
+          track.style.transform = `translate3d(calc(-33.3333% + ${diffX}px), 0, 0)`;
+        }
+      }
+
+      function onDragEnd(clientX) {
+        if (!isDragging) return;
+        isDragging = false;
+
+        const diffX = clientX - dragStartX;
+        const elapsed = Date.now() - dragStartTime;
+        const wrapperWidth = calWrapper.clientWidth || 360;
+        const threshold = Math.min(wrapperWidth * 0.22, 70);
+
+        // 빠른 플릭 또는 임계 거리 초과 시 스냅
+        const isQuickFlick = elapsed < 320 && Math.abs(diffX) > 35;
+        const isPassedThreshold = Math.abs(diffX) > threshold;
+
+        if (isHorizontalSwipe && (isQuickFlick || isPassedThreshold)) {
+          if (diffX < 0) {
+            // 왼쪽으로 스와이프 ➔ 다음 달 패널(-66.6666%)로 스냅
+            track.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+            track.style.transform = 'translate3d(-66.6666%, 0, 0)';
+            setTimeout(() => {
+              viewMonth++;
+              if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+              renderCalendar();
+              setTimeout(() => { isCalendarSwiped = false; }, 80);
+            }, 220);
+            return;
+          } else {
+            // 오른쪽으로 스와이프 ➔ 이전 달 패널(0%)로 스냅
+            track.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+            track.style.transform = 'translate3d(0%, 0, 0)';
+            setTimeout(() => {
+              viewMonth--;
+              if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+              renderCalendar();
+              setTimeout(() => { isCalendarSwiped = false; }, 80);
+            }, 220);
+            return;
+          }
+        }
+
+        // 임계값 미만 시 원래 위치(-33.3333%)로 탄성 복귀
+        if (track) {
+          track.style.transition = 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)';
+          track.style.transform = 'translate3d(-33.3333%, 0, 0)';
+        }
+        setTimeout(() => { isCalendarSwiped = false; }, 120);
+      }
+
+      // 모바일 터치 이벤트 리스너
+      calWrapper.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+
+      calWrapper.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 1) return;
+        onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+
+      calWrapper.addEventListener('touchend', (e) => {
+        if (e.changedTouches.length !== 1) return;
+        onDragEnd(e.changedTouches[0].clientX);
+      }, { passive: true });
+
+      // 데스크톱 마우스 드래그 이벤트 리스너
+      calWrapper.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        onDragStart(e.clientX, e.clientY);
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        onDragMove(e.clientX, e.clientY);
+      });
+
+      window.addEventListener('mouseup', (e) => {
+        onDragEnd(e.clientX);
+      });
+
+      document.getElementById('btnNextMonth').addEventListener('click', () => {
+        viewMonth++;
+        if (viewMonth > 11) {
+          viewMonth = 0;
+          viewYear++;
+        }
+        renderCalendar();
+      });
+
+      document.getElementById('btnTodayMonth').addEventListener('click', () => {
+        const today = new Date();
+        viewYear = today.getFullYear();
+        viewMonth = today.getMonth();
+        renderCalendar();
+      });
+
+      document.getElementById('btnResetDayOverride').addEventListener('click', () => {
+        if (selectedModalDate) {
+          resetDayOverride(selectedModalDate);
+        }
+      });
+
+      document.getElementById('btnCloseModal').addEventListener('click', closeModal);
+      document.getElementById('btnModalConfirm').addEventListener('click', closeModal);
+      document.getElementById('dayDetailModal').addEventListener('click', (e) => {
+        if (e.target.id === 'dayDetailModal') closeModal();
+      });
+
+      document.getElementById('dndGuideModal').addEventListener('click', (e) => {
+        if (e.target.id === 'dndGuideModal') closeDndGuideModal();
+      });
+    }
+
+    window.onload = function () {
+      loadSettings();
+      renderTeamButtons();
+      updateDashboard();
+      renderCalendar();
+      setupEventListeners();
+
+      setInterval(updateLiveCountdown, 1000);
+      updateLiveCountdown();
+    };
+  </script>
+</body>
+</html>
