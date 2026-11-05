@@ -1086,6 +1086,58 @@
     /* ==========================================================================
        스마트 덮어쓰기 지원 .ics 내보내기 엔진 (90일 일괄 내보내기)
        ========================================================================== */
+        function getIcsShiftMeta(shift, curDate, team) {
+      const stepInfo = getCycleStepInfo(curDate, team);
+      const isActualSub = shift.isOverride && shift.code !== 'T';
+      const baseLabel = (shift.isOverride && !stepInfo.label.startsWith(shift.code)) ? shift.code : stepInfo.label;
+      const subPrefix = isActualSub ? '🔴 [대근] ' : '';
+
+      switch (shift.code) {
+        case 'N':
+          return {
+            summary: isActualSub ? `${subPrefix}${baseLabel}` : `🟣 ${baseLabel}`,
+            color: 'purple',
+            appleColor: '#A855F7',
+            category: '야간'
+          };
+        case 'D':
+          return {
+            summary: isActualSub ? `${subPrefix}${baseLabel}` : `🟡 ${baseLabel}`,
+            color: 'gold',
+            appleColor: '#F59E0B',
+            category: '주간'
+          };
+        case 'A':
+          return {
+            summary: isActualSub ? `${subPrefix}${baseLabel}` : `🔵 ${baseLabel}`,
+            color: 'cyan',
+            appleColor: '#06B6D4',
+            category: '오후'
+          };
+        case 'T':
+          return {
+            summary: '🟢 T',
+            color: 'green',
+            appleColor: '#10B981',
+            category: '교육'
+          };
+        case 'DA':
+          return {
+            summary: '🟠 DA',
+            color: 'orange',
+            appleColor: '#F97316',
+            category: '대근'
+          };
+        default:
+          return {
+            summary: `${shift.name} (${shift.code})`,
+            color: 'gray',
+            appleColor: '#64748B',
+            category: '근무'
+          };
+      }
+    }
+
     function exportToIcs() {
       const rangeDays = parseInt(document.getElementById('exportRangeSelect').value, 10) || 90;
       const today = new Date();
@@ -1099,7 +1151,7 @@
         'PRODID:-//KHNP Shift Alarm System//KO',
         'CALSCALE:GREGORIAN',
         'METHOD:PUBLISH',
-        `X-WR-CALNAME:한수원 발전 ${currentTeam}부 근무일정`,
+        `X-WR-CALNAME:발전 ${currentTeam}부 캘린더 & 알람`,
         'X-WR-TIMEZONE:Asia/Seoul',
         'BEGIN:VTIMEZONE',
         'TZID:Asia/Seoul',
@@ -1119,34 +1171,12 @@
         const ymd = `${curDate.getFullYear()}${String(curDate.getMonth() + 1).padStart(2, '0')}${String(curDate.getDate()).padStart(2, '0')}`;
         const primaryUid = `khnp-shift-${currentTeam}-${ymd}-main@khnp.co.kr`;
 
-        if (shift.code === 'X' || shift.code === 'V') {
-          const nextDay = new Date(curDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          const nextYmd = `${nextDay.getFullYear()}${String(nextDay.getMonth() + 1).padStart(2, '0')}${String(nextDay.getDate()).padStart(2, '0')}`;
-
-          let summary = `[휴무] 발전 ${currentTeam}부 비번`;
-          let desc = `한국수력원자력 발전 ${currentTeam}부 비번/휴무일`;
-          if (shift.code === 'V') {
-            summary = `[휴가] 발전 ${currentTeam}부 연차/휴가`;
-            desc = `한국수력원자력 발전 ${currentTeam}부 연차 및 휴가일`;
-          }
-
-          icsContent.push(
-            'BEGIN:VEVENT',
-            `UID:${primaryUid}`,
-            `SEQUENCE:2`,
-            `LAST-MODIFIED:${dtStampUtc}`,
-            `DTSTAMP:${dtStampUtc}`,
-            `DTSTART;VALUE=DATE:${ymd}`,
-            `DTEND;VALUE=DATE:${nextYmd}`,
-            `SUMMARY:${summary}`,
-            `DESCRIPTION:${desc}`,
-            'END:VEVENT'
-          );
+        // N, D, A, T (및 연속대근 DA, NA) 외에는 캘린더 등록 완전 제외 (휴무, 휴가 등 비번일 미등록)
+        if (shift.code !== 'N' && shift.code !== 'D' && shift.code !== 'A' && shift.code !== 'T' && shift.code !== 'DA' && shift.code !== 'NA') {
           continue;
         }
 
-        // NA (야간 + 오후)
+        // NA (야간 + 오후 16시간 연속 대근)
         if (shift.code === 'NA') {
           let dtStart1 = new Date(curDate);
           dtStart1.setHours(0, 0, 0, 0);
@@ -1170,11 +1200,16 @@
             `DTSTAMP:${dtStampUtc}`,
             `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart1)}`,
             `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd1)}`,
-            `SUMMARY:[대근·NA 1차] 발전 ${currentTeam}부 야간 (00:00 ~ 08:00)`,
-            `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 1차 야간 근무\\n⏰ 기상 알람: ${wake1}\\n근무시간: 00:00 ~ 08:00`,
+            `SUMMARY:🟣 NA 1차`,
+            `COLOR:purple`,
+            `X-APPLE-CALENDAR-COLOR:#A855F7`,
+            `CATEGORIES:야간`,
+            `DESCRIPTION:한수원 발전 ${currentTeam}부 NA 1차 야간 근무
+⏰ 기상 알람: ${wake1}
+근무시간: 00:00 ~ 08:00`,
             'BEGIN:VALARM',
             'ACTION:DISPLAY',
-            `DESCRIPTION:⏰ [대근] NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
+            `DESCRIPTION:⏰ NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
             `TRIGGER:${trig1}`,
             'END:VALARM',
             'END:VEVENT'
@@ -1202,11 +1237,16 @@
             `DTSTAMP:${dtStampUtc}`,
             `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart2)}`,
             `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd2)}`,
-            `SUMMARY:[대근·NA 2차] 발전 ${currentTeam}부 오후 (16:00 ~ 24:00)`,
-            `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 2차 오후 근무\\n⏰ 기상 알람: ${wake2}\\n근무시간: 16:00 ~ 24:00`,
+            `SUMMARY:🔵 NA 2차`,
+            `COLOR:cyan`,
+            `X-APPLE-CALENDAR-COLOR:#06B6D4`,
+            `CATEGORIES:오후`,
+            `DESCRIPTION:한수원 발전 ${currentTeam}부 NA 2차 오후 근무
+⏰ 기상 알람: ${wake2}
+근무시간: 16:00 ~ 24:00`,
             'BEGIN:VALARM',
             'ACTION:DISPLAY',
-            `DESCRIPTION:⏰ [대근] NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
+            `DESCRIPTION:⏰ NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
             `TRIGGER:${trig2}`,
             'END:VALARM',
             'END:VEVENT'
@@ -1228,7 +1268,6 @@
 
         let alarmCode = shift.code;
         if (shift.code === 'DA') alarmCode = 'D';
-        if (shift.code === 'S') alarmCode = alarmTimes['S'] ? 'S' : 'D';
 
         const tObj = parseTime(alarmTimes[alarmCode]);
         let alarmDate = new Date(curDate);
@@ -1243,9 +1282,8 @@
         const triggerStr = diffMinutes >= 0 ? `-PT${diffMinutes}M` : `PT${Math.abs(diffMinutes)}M`;
         const wakeStr = `${String(alarmDate.getHours()).padStart(2, '0')}:${String(alarmDate.getMinutes()).padStart(2, '0')}`;
 
-        const isActualSub = shift.isOverride && shift.code !== 'T';
-        const summaryPrefix = isActualSub ? `[대근·${shift.name}]` : `[${shift.name}]`;
-        const descPrefix = isActualSub ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
+        const meta = getIcsShiftMeta(shift, curDate, currentTeam);
+        const descPrefix = (shift.isOverride && shift.code !== 'T') ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
 
         icsContent.push(
           'BEGIN:VEVENT',
@@ -1255,11 +1293,16 @@
           `DTSTAMP:${dtStampUtc}`,
           `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart)}`,
           `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd)}`,
-          `SUMMARY:${summaryPrefix} 발전 ${currentTeam}부 (${shift.hours})`,
-          `DESCRIPTION:${descPrefix}\\n⏰ 기상 알람: ${wakeStr}\\n근무시간: ${shift.hours}`,
+          `SUMMARY:${meta.summary}`,
+          `COLOR:${meta.color}`,
+          `X-APPLE-CALENDAR-COLOR:${meta.appleColor}`,
+          `CATEGORIES:${meta.category}`,
+          `DESCRIPTION:${descPrefix}
+⏰ 기상 알람: ${wakeStr}
+근무시간: ${shift.hours}`,
           'BEGIN:VALARM',
           'ACTION:DISPLAY',
-          `DESCRIPTION:⏰ ${summaryPrefix} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
+          `DESCRIPTION:⏰ ${meta.summary} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
           `TRIGGER:${triggerStr}`,
           'END:VALARM',
           'END:VEVENT'
@@ -1278,18 +1321,21 @@
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
 
-      showToast(`발전 ${currentTeam}부 ${rangeDays}일치 캘린더 파일(.ics)이 생성되었습니다.`);
+      showToast(`발전 ${currentTeam}부 ${rangeDays}일치 출근 일정(.ics)이 생성되었습니다.`);
     }
 
-    /* ==========================================================================
-       [솔루션 A] 바뀐 날짜 하루만 스마트폰 캘린더에 바로 등록/덮어쓰기
-       ========================================================================== */
     function exportSingleDayIcs(targetDate) {
-      if (!targetDate) return;
       const shift = getShiftForDate(targetDate, currentTeam);
+
+      // N, D, A, T (및 대근) 외에는 캘린더 등록 제외
+      if (shift.code !== 'N' && shift.code !== 'D' && shift.code !== 'A' && shift.code !== 'T' && shift.code !== 'DA' && shift.code !== 'NA') {
+        showToast('출근 근무(N, D, A, T)만 캘린더에 등록할 수 있습니다.');
+        return;
+      }
+
       const ymd = `${targetDate.getFullYear()}${String(targetDate.getMonth() + 1).padStart(2, '0')}${String(targetDate.getDate()).padStart(2, '0')}`;
-      const dtStampUtc = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
       const primaryUid = `khnp-shift-${currentTeam}-${ymd}-main@khnp.co.kr`;
+      const dtStampUtc = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
       let icsContent = [
         'BEGIN:VCALENDAR',
@@ -1297,7 +1343,7 @@
         'PRODID:-//KHNP Shift Alarm System//KO',
         'CALSCALE:GREGORIAN',
         'METHOD:PUBLISH',
-        `X-WR-CALNAME:한수원 발전 ${currentTeam}부 근무일정`,
+        `X-WR-CALNAME:발전 ${currentTeam}부 캘린더 & 알람`,
         'X-WR-TIMEZONE:Asia/Seoul',
         'BEGIN:VTIMEZONE',
         'TZID:Asia/Seoul',
@@ -1310,31 +1356,7 @@
         'END:VTIMEZONE'
       ];
 
-      if (shift.code === 'X' || shift.code === 'V') {
-        const nextDay = new Date(targetDate);
-        nextDay.setDate(nextDay.getDate() + 1);
-        const nextYmd = `${nextDay.getFullYear()}${String(nextDay.getMonth() + 1).padStart(2, '0')}${String(nextDay.getDate()).padStart(2, '0')}`;
-
-        let summary = `[휴무] 발전 ${currentTeam}부 비번`;
-        let desc = `한국수력원자력 발전 ${currentTeam}부 비번/휴무일`;
-        if (shift.code === 'V') {
-          summary = `[휴가] 발전 ${currentTeam}부 연차/휴가`;
-          desc = `한국수력원자력 발전 ${currentTeam}부 연차 및 휴가일`;
-        }
-
-        icsContent.push(
-          'BEGIN:VEVENT',
-          `UID:${primaryUid}`,
-          `SEQUENCE:3`,
-          `LAST-MODIFIED:${dtStampUtc}`,
-          `DTSTAMP:${dtStampUtc}`,
-          `DTSTART;VALUE=DATE:${ymd}`,
-          `DTEND;VALUE=DATE:${nextYmd}`,
-          `SUMMARY:${summary}`,
-          `DESCRIPTION:${desc}`,
-          'END:VEVENT'
-        );
-      } else if (shift.code === 'NA') {
+      if (shift.code === 'NA') {
         let dtStart1 = new Date(targetDate);
         dtStart1.setHours(0, 0, 0, 0);
         let dtEnd1 = new Date(targetDate);
@@ -1357,11 +1379,16 @@
           `DTSTAMP:${dtStampUtc}`,
           `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart1)}`,
           `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd1)}`,
-          `SUMMARY:[대근·NA 1차] 발전 ${currentTeam}부 야간 (00:00 ~ 08:00)`,
-          `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 1차 야간 근무\\n⏰ 기상 알람: ${wake1}\\n근무시간: 00:00 ~ 08:00`,
+          `SUMMARY:🟣 NA 1차`,
+          `COLOR:purple`,
+          `X-APPLE-CALENDAR-COLOR:#A855F7`,
+          `CATEGORIES:야간`,
+          `DESCRIPTION:한수원 발전 ${currentTeam}부 NA 1차 야간 근무
+⏰ 기상 알람: ${wake1}
+근무시간: 00:00 ~ 08:00`,
           'BEGIN:VALARM',
           'ACTION:DISPLAY',
-          `DESCRIPTION:⏰ [대근] NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
+          `DESCRIPTION:⏰ NA 1차 야간 기상 알람 (${wake1}) - 출근 준비`,
           `TRIGGER:${trig1}`,
           'END:VALARM',
           'END:VEVENT'
@@ -1389,11 +1416,16 @@
           `DTSTAMP:${dtStampUtc}`,
           `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart2)}`,
           `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd2)}`,
-          `SUMMARY:[대근·NA 2차] 발전 ${currentTeam}부 오후 (16:00 ~ 24:00)`,
-          `DESCRIPTION:한수원 발전 ${currentTeam}부 [연속대근] NA 2차 오후 근무\\n⏰ 기상 알람: ${wake2}\\n근무시간: 16:00 ~ 24:00`,
+          `SUMMARY:🔵 NA 2차`,
+          `COLOR:cyan`,
+          `X-APPLE-CALENDAR-COLOR:#06B6D4`,
+          `CATEGORIES:오후`,
+          `DESCRIPTION:한수원 발전 ${currentTeam}부 NA 2차 오후 근무
+⏰ 기상 알람: ${wake2}
+근무시간: 16:00 ~ 24:00`,
           'BEGIN:VALARM',
           'ACTION:DISPLAY',
-          `DESCRIPTION:⏰ [대근] NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
+          `DESCRIPTION:⏰ NA 2차 오후 기상 알람 (${wake2}) - 출근 준비`,
           `TRIGGER:${trig2}`,
           'END:VALARM',
           'END:VEVENT'
@@ -1412,7 +1444,6 @@
 
         let alarmCode = shift.code;
         if (shift.code === 'DA') alarmCode = 'D';
-        if (shift.code === 'S') alarmCode = alarmTimes['S'] ? 'S' : 'D';
 
         const tObj = parseTime(alarmTimes[alarmCode]);
         let alarmDate = new Date(targetDate);
@@ -1427,9 +1458,8 @@
         const triggerStr = diffMinutes >= 0 ? `-PT${diffMinutes}M` : `PT${Math.abs(diffMinutes)}M`;
         const wakeStr = `${String(alarmDate.getHours()).padStart(2, '0')}:${String(alarmDate.getMinutes()).padStart(2, '0')}`;
 
-        const isActualSub = shift.isOverride && shift.code !== 'T';
-        const summaryPrefix = isActualSub ? `[대근·${shift.name}]` : `[${shift.name}]`;
-        const descPrefix = isActualSub ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
+        const meta = getIcsShiftMeta(shift, targetDate, currentTeam);
+        const descPrefix = (shift.isOverride && shift.code !== 'T') ? `한수원 발전 ${currentTeam}부 [대근] ${shift.name} 근무` : `한수원 발전 ${currentTeam}부 ${shift.name} 근무`;
 
         icsContent.push(
           'BEGIN:VEVENT',
@@ -1439,11 +1469,16 @@
           `DTSTAMP:${dtStampUtc}`,
           `DTSTART;TZID=Asia/Seoul:${formatIcsDateTime(dtStart)}`,
           `DTEND;TZID=Asia/Seoul:${formatIcsDateTime(dtEnd)}`,
-          `SUMMARY:${summaryPrefix} 발전 ${currentTeam}부 (${shift.hours})`,
-          `DESCRIPTION:${descPrefix}\\n⏰ 기상 알람: ${wakeStr}\\n근무시간: ${shift.hours}`,
+          `SUMMARY:${meta.summary}`,
+          `COLOR:${meta.color}`,
+          `X-APPLE-CALENDAR-COLOR:${meta.appleColor}`,
+          `CATEGORIES:${meta.category}`,
+          `DESCRIPTION:${descPrefix}
+⏰ 기상 알람: ${wakeStr}
+근무시간: ${shift.hours}`,
           'BEGIN:VALARM',
           'ACTION:DISPLAY',
-          `DESCRIPTION:⏰ ${summaryPrefix} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
+          `DESCRIPTION:⏰ ${meta.summary} 기상 알람 (${wakeStr}) - 발전소 출근 준비`,
           `TRIGGER:${triggerStr}`,
           'END:VALARM',
           'END:VEVENT'
