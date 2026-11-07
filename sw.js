@@ -1,3 +1,11 @@
+const CACHE_NAME = 'khnp-alarm-v2';
+const ASSETS_TO_CACHE = [
+  './',
+  'index.html',
+  'manifest.json',
+  'https://cdn.tailwindcss.com'
+];
+
 // 1. 서비스워커 설치 시 오프라인 필수 파일 즉시 스마트폰에 저장 (Pre-caching)
 self.addEventListener('install', function(event) {
   event.waitUntil(
