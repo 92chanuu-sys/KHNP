@@ -493,6 +493,12 @@
             <button id="btnSaveMyProfile" type="button" class="w-full py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-xs font-bold text-white active:scale-95 transition mt-1">
               내 프로필 저장 & 관리자 인증
             </button>
+            <div class="pt-2 border-t border-slate-800">
+              <button id="btnCopyMyShareCode" type="button" class="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-xs font-bold text-cyan-300 flex items-center justify-center gap-1.5 active:scale-95 transition">
+                <span>📋 내 스케줄 공유 코드 복사</span>
+              </button>
+              <p class="text-[10px] text-slate-400 text-center mt-1">내 대근·휴가 일정을 카톡/사내메신저로 동료에게 바로 전달</p>
+            </div>
           </div>
         </div>
 
@@ -500,11 +506,30 @@
         <div class="p-3 rounded-xl bg-surface border border-slate-700/80 text-xs">
           <div class="font-bold text-slate-200 mb-2 flex items-center justify-between">
             <span>동료 근무표 목록</span>
-            <button id="btnRefreshProfilesCloud" type="button" class="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium underline">
-              🔄 동기화 갱신
-            </button>
+            <div class="flex items-center gap-2">
+              <button id="btnToggleImportCode" type="button" class="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold underline">
+                ➕ 동료 코드 등록
+              </button>
+              <button id="btnRefreshProfilesCloud" type="button" class="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium underline">
+                🔄 클라우드 갱신
+              </button>
+            </div>
           </div>
-          <div class="space-y-1.5 max-h-44 overflow-y-auto" id="profileListContainer">
+
+          <!-- 동료 코드 직접 입력 박스 (토글 가능) -->
+          <div id="colleagueImportBox" class="hidden p-2.5 rounded-xl bg-slate-900 border border-emerald-500/50 mb-2.5 space-y-1.5">
+            <div class="text-[11px] text-emerald-300 font-semibold flex items-center justify-between">
+              <span>동료 스케줄 코드 붙여넣기</span>
+              <button id="btnCloseImportBox" type="button" class="text-slate-400 hover:text-white text-xs">✕</button>
+            </div>
+            <div class="flex gap-1.5">
+              <input type="text" id="inputColleagueCode" placeholder="전달받은 코드(KHNP-...) 붙여넣기" class="flex-1 bg-surface border border-slate-700 rounded-lg px-2 py-1.5 text-white text-[11px] font-mono focus:outline-none focus:border-emerald-500">
+              <button id="btnSubmitColleagueCode" type="button" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold active:scale-95 transition whitespace-nowrap">등록</button>
+            </div>
+            <p class="text-[10px] text-slate-400">동료에게 복사받은 코드를 붙여넣으면 즉시 읽기 전용 근무표로 등록됩니다.</p>
+          </div>
+
+          <div class="space-y-1.5 max-h-44 overflow-y-auto modal-scroll" id="profileListContainer">
             <!-- 동료 아이템 동적 렌더링 -->
           </div>
         </div>
@@ -1031,7 +1056,7 @@
 
       const keys = Object.keys(colleagues);
       if (keys.length === 0) {
-        container.innerHTML = '<div class="text-[11px] text-slate-500 py-2 text-center">등록된 동료 근무표가 없습니다.<br>동료가 프로필을 등록하면 자동으로 나타납니다.</div>';
+        container.innerHTML = '<div class="text-[11px] text-slate-500 py-3 text-center">등록된 동료 근무표가 없습니다.<br>상단 <span class="text-emerald-400 font-semibold">[➕ 동료 코드 등록]</span>으로 동료 스케줄을 추가하세요.</div>';
         return;
       }
 
@@ -1041,15 +1066,16 @@
         const item = document.createElement('div');
         item.className = 'p-2 rounded-lg bg-slate-900 border border-slate-700/70 flex items-center justify-between gap-2';
         item.innerHTML = `
-          <div>
-            <div class="font-bold text-white text-xs">${c.name} <span class="text-[10px] font-normal text-cyan-400">(${c.team}부)</span></div>
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-white text-xs truncate">${c.name} <span class="text-[10px] font-normal text-cyan-400">(${c.team}부)</span></div>
             <div class="text-[10px] text-slate-400">대근/휴가: ${Object.keys(c.overrides || {}).length}건 반영됨</div>
           </div>
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5 shrink-0">
             ${isCurrentActive 
               ? '<span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800/60">보는중</span>'
-              : `<button type="button" class="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-medium btn-select-colleague" data-id="${cid}">조회하기</button>`
+              : `<button type="button" class="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-medium btn-select-colleague active:scale-95" data-id="${cid}">조회</button>`
             }
+            <button type="button" class="text-[10px] px-1.5 py-1 rounded bg-rose-950/50 hover:bg-rose-900 text-rose-300 border border-rose-800/40 font-semibold btn-delete-colleague active:scale-95" data-id="${cid}" title="동료 삭제">✕</button>
           </div>
         `;
         container.appendChild(item);
@@ -1062,6 +1088,103 @@
           closeProfileModal();
         });
       });
+
+      container.querySelectorAll('.btn-delete-colleague').forEach(b => {
+        b.addEventListener('click', (e) => {
+          const id = e.target.getAttribute('data-id');
+          const cName = colleagues[id] ? colleagues[id].name : '동료';
+          delete colleagues[id];
+          safeStorage.setItem(STORAGE_KEY_COLLEAGUES, JSON.stringify(colleagues));
+          if (activeProfileId === id) {
+            switchActiveProfile('__my__');
+          } else {
+            updateProfileDropdown();
+          }
+          renderProfileListModal();
+          showToast(`'${cName}' 동료 근무표가 삭제되었습니다.`);
+        });
+      });
+    }
+
+    function generateShareCode() {
+      const payload = {
+        v: 1,
+        id: myProfile.id || ('u_' + Date.now().toString(36)),
+        name: myProfile.name || '동료',
+        team: myProfile.team || currentTeam,
+        overrides: myProfile.overrides || {},
+        updatedAt: Date.now()
+      };
+      const jsonStr = JSON.stringify(payload);
+      return 'KHNP-' + btoa(encodeURIComponent(jsonStr));
+    }
+
+    function copyMyShareCode() {
+      const code = generateShareCode();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => {
+          showToast('📋 내 스케줄 공유 코드가 복사되었습니다! 카톡 등으로 전달하세요.');
+        }).catch(() => {
+          fallbackCopyText(code);
+        });
+      } else {
+        fallbackCopyText(code);
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast('📋 내 스케줄 공유 코드가 복사되었습니다! 카톡 등으로 전달하세요.');
+      } catch (e) {
+        showToast('⚠️ 클립보드 복사 권한이 제한되어 있습니다.');
+      }
+      document.body.removeChild(ta);
+    }
+
+    function importColleagueShareCode(rawCode) {
+      try {
+        let clean = (rawCode || '').trim();
+        if (!clean) {
+          showToast('⚠️ 스케줄 코드를 입력해주세요.');
+          return false;
+        }
+        if (clean.startsWith('KHNP-')) {
+          clean = clean.slice(5);
+        }
+        const jsonStr = decodeURIComponent(atob(clean));
+        const data = JSON.parse(jsonStr);
+
+        if (!data.name || !data.team) {
+          showToast('⚠️ 유효하지 않은 스케줄 코드 형식입니다.');
+          return false;
+        }
+
+        const cid = data.id || ('colleague_' + Date.now().toString(36));
+        colleagues[cid] = {
+          id: cid,
+          name: data.name,
+          team: parseInt(data.team, 10) || 3,
+          overrides: data.overrides || {},
+          updatedAt: data.updatedAt || Date.now()
+        };
+
+        safeStorage.setItem(STORAGE_KEY_COLLEAGUES, JSON.stringify(colleagues));
+        updateProfileDropdown();
+        renderProfileListModal();
+        showToast(`✅ ${data.name} (${data.team}부) 동료 스케줄이 등록되었습니다!`);
+        return true;
+      } catch (err) {
+        showToast('⚠️ 코드를 해석할 수 없습니다. 전체 코드가 맞는지 확인해주세요.');
+        return false;
+      }
     }
 
     function openAdminAuthModal() {
@@ -2309,6 +2432,30 @@
         closeProfileModal();
         renderTeamButtons();
         showToast(`'${myProfile.name}' 프로필이 저장 및 관리자로 인증되었습니다.`);
+      });
+
+      document.getElementById('btnCopyMyShareCode').addEventListener('click', copyMyShareCode);
+
+      const importBox = document.getElementById('colleagueImportBox');
+      document.getElementById('btnToggleImportCode').addEventListener('click', () => {
+        if (importBox) {
+          importBox.classList.toggle('hidden');
+          if (!importBox.classList.contains('hidden')) {
+            document.getElementById('inputColleagueCode').focus();
+          }
+        }
+      });
+
+      document.getElementById('btnCloseImportBox').addEventListener('click', () => {
+        if (importBox) importBox.classList.add('hidden');
+      });
+
+      document.getElementById('btnSubmitColleagueCode').addEventListener('click', () => {
+        const input = document.getElementById('inputColleagueCode');
+        if (input && importColleagueShareCode(input.value)) {
+          input.value = '';
+          if (importBox) importBox.classList.add('hidden');
+        }
       });
 
       document.getElementById('btnRefreshProfilesCloud').addEventListener('click', () => {
